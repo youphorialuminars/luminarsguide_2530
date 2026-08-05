@@ -100,10 +100,12 @@ function DemoCredentials({ onSelect }: DemoCredentialsProps) {
                 <Icon name={cred.icon as any} size={13} className={cred.color} />
                 <span className="text-xs font-700 text-foreground">{cred.role}</span>
               </div>
-              <button
-                type="button"
+              <span
+                role="button"
+                tabIndex={0}
                 onClick={(e) => handleCopy(e, `${cred.email}\n${cred.password}`, cred.role)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                onKeyDown={(e) => e.key === 'Enter' && handleCopy(e as any, `${cred.email}\n${cred.password}`, cred.role)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                 title="Copy credentials"
               >
                 <Icon
@@ -111,7 +113,7 @@ function DemoCredentials({ onSelect }: DemoCredentialsProps) {
                   size={12}
                   className={copied === cred.role ? 'text-positive' : 'text-muted-foreground'}
                 />
-              </button>
+              </span>
             </div>
             <p className="text-[10px] text-muted-foreground font-mono truncate leading-tight">
               {cred.email}
