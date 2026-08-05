@@ -13,6 +13,125 @@ import { createClient } from '@/lib/supabase/client';
 type AuthTab = 'login' | 'signup' | 'reset';
 type UserRole = 'mentor' | 'student_parent' | 'counselor' | 'school';
 
+// Demo credentials for each role
+const DEMO_CREDENTIALS = [
+  {
+    role: 'Mentor',
+    email: 'demo.mentor@luminarsguide.com',
+    password: 'Demo@Mentor2025',
+    icon: 'AcademicCapIcon',
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/10 border-violet-500/20 hover:border-violet-500/50',
+    activeBg: 'bg-violet-500/15 border-violet-500/50',
+  },
+  {
+    role: 'Student / Parent',
+    email: 'demo.student@luminarsguide.com',
+    password: 'Demo@Student2025',
+    icon: 'UserGroupIcon',
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/10 border-sky-500/20 hover:border-sky-500/50',
+    activeBg: 'bg-sky-500/15 border-sky-500/50',
+  },
+  {
+    role: 'Counselor',
+    email: 'demo.counselor@luminarsguide.com',
+    password: 'Demo@Counselor2025',
+    icon: 'ShieldCheckIcon',
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/50',
+    activeBg: 'bg-emerald-500/15 border-emerald-500/50',
+  },
+  {
+    role: 'School',
+    email: 'demo.school@luminarsguide.com',
+    password: 'Demo@School2025',
+    icon: 'BuildingLibraryIcon',
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10 border-amber-500/20 hover:border-amber-500/50',
+    activeBg: 'bg-amber-500/15 border-amber-500/50',
+  },
+];
+
+interface DemoCredentialsProps {
+  onSelect: (email: string, password: string) => void;
+}
+
+function DemoCredentials({ onSelect }: DemoCredentialsProps) {
+  const [selected, setSelected] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState<string | null>(null);
+
+  const handleSelect = (cred: typeof DEMO_CREDENTIALS[0]) => {
+    setSelected(cred.email);
+    onSelect(cred.email, cred.password);
+    toast.success(`Demo credentials filled for ${cred.role}`);
+  };
+
+  const handleCopy = (e: React.MouseEvent, text: string, key: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-600 text-muted-foreground px-2 flex items-center gap-1.5">
+          <Icon name="BeakerIcon" size={12} />
+          Try a Demo Account
+        </span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {DEMO_CREDENTIALS.map((cred) => (
+          <button
+            key={cred.email}
+            type="button"
+            onClick={() => handleSelect(cred)}
+            className={`group flex flex-col gap-1.5 p-2.5 rounded-xl border-2 transition-all text-left ${
+              selected === cred.email ? cred.activeBg : cred.bg
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Icon name={cred.icon as any} size={13} className={cred.color} />
+                <span className="text-xs font-700 text-foreground">{cred.role}</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => handleCopy(e, `${cred.email}\n${cred.password}`, cred.role)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Copy credentials"
+              >
+                <Icon
+                  name={copied === cred.role ? 'CheckIcon' : 'ClipboardDocumentIcon'}
+                  size={12}
+                  className={copied === cred.role ? 'text-positive' : 'text-muted-foreground'}
+                />
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground font-mono truncate leading-tight">
+              {cred.email}
+            </p>
+            {selected === cred.email && (
+              <span className="text-[10px] font-600 text-positive flex items-center gap-1">
+                <Icon name="CheckCircleIcon" size={10} />
+                Filled
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground text-center mt-2 leading-relaxed">
+        Click any role to auto-fill credentials · For exploration only
+      </p>
+    </div>
+  );
+}
+
 interface LoginForm {
   email: string;
   password: string;
@@ -47,7 +166,13 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
     handleSubmit,
     formState: { errors },
     setError,
+    setValue,
   } = useForm<LoginForm>();
+
+  const handleDemoSelect = (email: string, password: string) => {
+    setValue('email', email);
+    setValue('password', password);
+  };
 
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
@@ -86,6 +211,7 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+      <DemoCredentials onSelect={handleDemoSelect} />
       <div>
         <label className="block text-sm font-600 text-foreground mb-1.5">
           Email Address <span className="text-negative">*</span>
