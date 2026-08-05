@@ -8,6 +8,7 @@ import { mockStudents, mockSessions } from '@/lib/mockData';
 import type { Session } from '@/lib/mockData';
 import AnalysisCards from './AnalysisCards';
 import SessionHistoryTable from './SessionHistoryTable';
+import AttendanceCalendar from './AttendanceCalendar';
 
 const ScoreBarChart = dynamic(() => import('./ScoreBarChart'), { ssr: false });
 const TopicPieChart = dynamic(() => import('./TopicPieChart'), { ssr: false });
@@ -24,7 +25,7 @@ export default function AnalysisHistoryContent() {
   const [activeSession, setActiveSession] = useState<Session>(
     studentSessions[0] || mockSessions[0]
   );
-  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance'>('analysis');
 
   const barChartData = useMemo(() => {
     return [...studentSessions]
@@ -71,6 +72,7 @@ export default function AnalysisHistoryContent() {
     { id: 'analysis' as const, label: 'Current Analysis', icon: 'SparklesIcon' },
     { id: 'charts' as const, label: 'Progress Charts', icon: 'ChartBarIcon' },
     { id: 'history' as const, label: 'Session History', icon: 'ClockIcon' },
+    { id: 'attendance' as const, label: 'Attendance', icon: 'CalendarDaysIcon' },
   ];
 
   const formatDate = (dateStr: string) => {
@@ -102,7 +104,10 @@ export default function AnalysisHistoryContent() {
               <div>
                 <h1 className="text-2xl font-700 text-foreground leading-tight">{student.name}</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {student.grade} · Enrolled {formatDate(student.enrolledDate)}
+                  {student.grade}
+                  {student.age ? ` · Age ${student.age}` : ''}
+                  {student.gender ? ` · ${student.gender}` : ''}
+                  {` · Enrolled ${formatDate(student.enrolledDate)}`}
                 </p>
               </div>
             </div>
@@ -146,7 +151,7 @@ export default function AnalysisHistoryContent() {
           },
           {
             id: 'stat-topics',
-            label: 'Topics Covered',
+            label: 'Pillars Covered',
             value: pieChartData.length,
             suffix: '',
             icon: 'BookOpenIcon',
@@ -191,42 +196,44 @@ export default function AnalysisHistoryContent() {
       )}
 
       {/* Active Session Context */}
-      <div className="card-elevated p-4 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Icon name="CalendarDaysIcon" size={18} className="text-primary" />
+      {activeTab !== 'attendance' && (
+        <div className="card-elevated p-4 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Icon name="CalendarDaysIcon" size={18} className="text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground font-500">Viewing analysis for session</p>
+              <p className="text-sm font-700 text-foreground">
+                {formatDate(activeSession.date)} · {activeSession.topic}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground font-500">Viewing analysis for session</p>
-            <p className="text-sm font-700 text-foreground">
-              {formatDate(activeSession.date)} · {activeSession.topic}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`status-badge tabular-nums ${
-            activeSession.score >= 80 ? 'badge-positive' :
-            activeSession.score >= 65 ? 'badge-info' :
-            activeSession.score >= 50 ? 'badge-warning' : 'badge-negative'
-          }`}>
-            Score: {activeSession.score}
-          </span>
-          <span className="text-xs text-muted-foreground font-500">{activeSession.modelUsed}</span>
-          {activeSession.cacheHit && (
-            <span className="status-badge badge-warning text-xs">
-              <Icon name="BoltIcon" size={11} /> Cached
+          <div className="flex items-center gap-3">
+            <span className={`status-badge tabular-nums ${
+              activeSession.score >= 80 ? 'badge-positive' :
+              activeSession.score >= 65 ? 'badge-info' :
+              activeSession.score >= 50 ? 'badge-warning' : 'badge-negative'
+            }`}>
+              Score: {activeSession.score}
             </span>
-          )}
+            <span className="text-xs text-muted-foreground font-500">{activeSession.modelUsed}</span>
+            {activeSession.cacheHit && (
+              <span className="status-badge badge-warning text-xs">
+                <Icon name="BoltIcon" size={11} /> Cached
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-5 w-full sm:w-auto sm:inline-flex">
+      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-5 overflow-x-auto scrollbar-thin">
         {tabs.map((tab) => (
           <button
             key={`tab-${tab.id}`}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-600 transition-all duration-150 flex-1 sm:flex-none justify-center ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-600 transition-all duration-150 flex-shrink-0 justify-center ${
               activeTab === tab.id
                 ? 'bg-card text-foreground shadow-sm border border-border'
                 : 'text-muted-foreground hover:text-foreground'
@@ -250,12 +257,41 @@ export default function AnalysisHistoryContent() {
           </div>
 
           {/* Observation Summary */}
-          <div className="card-elevated p-4 mb-4 border-l-4 border-l-muted-foreground/30">
-            <p className="section-label mb-2">Mentor Observation</p>
-            <p className="text-sm text-foreground/80 leading-relaxed italic">
-              &ldquo;{activeSession.observation}&rdquo;
-            </p>
-          </div>
+          {activeSession.observations ? (
+            <div className="card-elevated p-4 mb-4">
+              <p className="section-label mb-3">Mentor Observations (5 Areas)</p>
+              <div className="flex flex-col gap-3">
+                {[
+                  { key: 'offlineClass', label: 'Offline Class', icon: 'BuildingLibraryIcon' },
+                  { key: 'onlineTask', label: 'Online Task', icon: 'ComputerDesktopIcon' },
+                  { key: 'groupTask', label: 'Group Task', icon: 'UserGroupIcon' },
+                  { key: 'mentorCall', label: 'Mentor Call', icon: 'PhoneIcon' },
+                  { key: 'comprehensive', label: 'Comprehensive', icon: 'ClipboardDocumentListIcon' },
+                ].map((field) => {
+                  const val = activeSession.observations?.[field.key as keyof typeof activeSession.observations];
+                  if (!val) return null;
+                  return (
+                    <div key={field.key} className="flex items-start gap-2.5 p-3 rounded-xl bg-secondary/40 border border-border">
+                      <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Icon name={field.icon as any} size={13} className="text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-700 text-muted-foreground mb-0.5">{field.label}</p>
+                        <p className="text-sm text-foreground/80 leading-relaxed italic">&ldquo;{val}&rdquo;</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="card-elevated p-4 mb-4 border-l-4 border-l-muted-foreground/30">
+              <p className="section-label mb-2">Mentor Observation</p>
+              <p className="text-sm text-foreground/80 leading-relaxed italic">
+                &ldquo;{activeSession.observation}&rdquo;
+              </p>
+            </div>
+          )}
 
           <AnalysisCards analysis={activeSession.analysis} isNew={isNew} />
         </div>
@@ -323,24 +359,24 @@ export default function AnalysisHistoryContent() {
             {/* Pie Chart */}
             <div className="card-elevated p-5">
               <div className="mb-1">
-                <h3 className="font-700 text-foreground text-base">Topic Distribution</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Sessions by subject area</p>
+                <h3 className="font-700 text-foreground text-base">Pillar Distribution</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Sessions by core educational pillar</p>
               </div>
 
               {pieChartData.length > 0 ? (
                 <TopicPieChart data={pieChartData} />
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No topic data yet</p>
+                  <p className="text-sm text-muted-foreground">No pillar data yet</p>
                 </div>
               )}
 
               <div className="mt-3 pt-3 border-t border-border">
-                <p className="section-label mb-2">Topic Performance Summary</p>
+                <p className="section-label mb-2">Pillar Performance Summary</p>
                 <div className="flex flex-col gap-1.5">
                   {pieChartData.map((d, i) => (
                     <div key={`topic-summary-${i}`} className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-foreground font-500 truncate max-w-[160px]">{d.topic}</p>
+                      <p className="text-xs text-foreground font-500 truncate max-w-[200px]">{d.topic}</p>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <span className="text-xs text-muted-foreground tabular-nums">{d.count} session{d.count !== 1 ? 's' : ''}</span>
                         <span className={`status-badge text-xs tabular-nums ${
@@ -376,6 +412,16 @@ export default function AnalysisHistoryContent() {
               setActiveTab('analysis');
             }}
           />
+        </div>
+      )}
+
+      {activeTab === 'attendance' && (
+        <div className="animate-fade-in">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-700 text-foreground">Attendance Tracker</h2>
+            <p className="text-sm text-muted-foreground">Click any date to mark attendance</p>
+          </div>
+          <AttendanceCalendar studentId={student.id} />
         </div>
       )}
 

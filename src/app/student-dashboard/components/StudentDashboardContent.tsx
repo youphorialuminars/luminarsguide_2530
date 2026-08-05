@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { mockStudents, mockSessions } from '@/lib/mockData';
-import type { Student } from '@/lib/mockData';
+import type { Student, Gender } from '@/lib/mockData';
 import StudentCard from './StudentCard';
 import DashboardStatsStrip from './DashboardStatsStrip';
 import AddStudentModal from './AddStudentModal';
@@ -57,7 +57,7 @@ export default function StudentDashboardContent() {
     return result;
   }, [students, search, filterTrend, sortBy]);
 
-  const handleAddStudent = (data: { name: string; grade: string; notes: string }) => {
+  const handleAddStudent = (data: { name: string; grade: string; age: string; gender: Gender | ''; notes: string }) => {
     const initials = data.name
       .split(' ')
       .slice(0, 2)
@@ -69,6 +69,8 @@ export default function StudentDashboardContent() {
       id: `student-${Date.now()}`,
       name: data.name,
       grade: data.grade,
+      age: data.age ? parseInt(data.age) : undefined,
+      gender: (data.gender as Gender) || undefined,
       mentorId: 'mentor-101',
       avatarColor: colors[students.length % colors.length],
       avatarInitials: initials,
@@ -127,7 +129,7 @@ export default function StudentDashboardContent() {
           />
           <input
             className="input-mystic pl-9"
-            placeholder="Search by name, grade, or topic..."
+            placeholder="Search by name, grade, or pillar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -196,7 +198,7 @@ export default function StudentDashboardContent() {
           <h3 className="font-700 text-foreground text-lg mb-2">No students found</h3>
           <p className="text-sm text-muted-foreground max-w-xs mb-5">
             {search
-              ? `No students match "${search}". Try a different name, grade, or topic.`
+              ? `No students match "${search}". Try a different name, grade, or pillar.`
               : 'No students match the current filter. Try selecting "All Students".'}
           </p>
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>

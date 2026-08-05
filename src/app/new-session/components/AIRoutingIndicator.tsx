@@ -10,10 +10,8 @@ interface AIRoutingIndicatorProps {
 }
 
 const SENSITIVE_TOPICS = [
-  'Sexual Well-being Education',
-  'Distress Tolerance',
-  'Emotional Regulation',
-  'Physical Safety & Well-being',
+  'Emotional Resilience and Mental Well-being',
+  'Personal Safety, Consent, and Boundaries',
 ];
 
 export default function AIRoutingIndicator({
@@ -22,7 +20,7 @@ export default function AIRoutingIndicator({
   isCacheHit,
 }: AIRoutingIndicatorProps) {
   const isSensitive = SENSITIVE_TOPICS.includes(topic);
-  const isComplex = observationLength > 150 || isSensitive;
+  const isComplex = observationLength > 300 || isSensitive;
 
   const model = isComplex ? 'Gemini Pro (Free Tier)' : 'Gemini Flash (Free Tier)';
   const modelColor = isComplex ? 'text-info' : 'text-positive';
@@ -59,15 +57,15 @@ export default function AIRoutingIndicator({
           </div>
           <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
             {isCacheHit
-              ? 'A similar session exists in this student\'s history. The AI will adapt the previous analysis rather than generating from scratch — saving time and resources.'
+              ? "A similar session exists in this student's history. The AI will adapt the previous analysis rather than generating from scratch — saving time and resources."
               : isComplex
-              ? `This session involves a sensitive topic ("${topic}") or a detailed observation. Routing to Gemini Pro for deeper, more nuanced analysis.`
-              : `Standard session detected. Routing to Gemini Flash for fast, efficient analysis. Estimated response: under 8 seconds.`}
+              ? `This session involves a sensitive pillar ("${topic}") or detailed observations. Routing to Gemini Pro for deeper, more nuanced analysis across all five observation areas.`
+              : `Standard session detected. Routing to Gemini Flash for fast, efficient analysis of all five observation areas. Estimated response: under 8 seconds.`}
           </p>
           {isSensitive && !isCacheHit && (
             <div className="flex items-center gap-1.5 mt-2 px-2 py-1 rounded-lg bg-warning/10 border border-warning/20 w-fit">
               <Icon name="ShieldCheckIcon" size={12} className="text-warning" />
-              <p className="text-xs text-warning font-600">Sensitive topic — enhanced persona active</p>
+              <p className="text-xs text-warning font-600">Sensitive pillar — enhanced persona active</p>
             </div>
           )}
         </div>

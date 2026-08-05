@@ -116,7 +116,7 @@
     border-radius: 10px;
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 0.9375rem;
+    font-size: var(--fs-base, 0.9375rem);
     padding: 0.625rem 0.875rem;
     width: 100%;
     transition: border-color 150ms ease, box-shadow 150ms ease;
@@ -139,7 +139,7 @@
     border-radius: 10px;
     font-family: var(--font-sans);
     font-weight: 600;
-    font-size: 0.9375rem;
+    font-size: var(--fs-base, 0.9375rem);
     padding: 0.6875rem 1.5rem;
     cursor: pointer;
     transition: background 150ms ease, transform 100ms ease, box-shadow 150ms ease;
@@ -172,7 +172,7 @@
     border-radius: 10px;
     font-family: var(--font-sans);
     font-weight: 600;
-    font-size: 0.9375rem;
+    font-size: var(--fs-base, 0.9375rem);
     padding: 0.6875rem 1.5rem;
     cursor: pointer;
     transition: background 150ms ease, transform 100ms ease;
