@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 interface UserProfile {
@@ -60,7 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchProfile = async (userId: string) => {
     setProfileLoading(true);
@@ -109,6 +109,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const signUp = async (email: string, password: string, metadata = {}) => {
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : '');
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -117,7 +120,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           full_name: (metadata as any)?.fullName || '',
           avatar_url: (metadata as any)?.avatarUrl || ''
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: `${siteUrl}/auth/callback`
       }
     });
     if (error) throw error;

@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Sidebar from './Sidebar';
 import { Toaster } from 'sonner';
@@ -10,7 +12,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen mystic-gradient-bg flex">
       <Sidebar />
-      {/* Desktop: offset by sidebar width */}
+      {/* Desktop: offset by sidebar width (matches default expanded w-60) */}
       <main className="flex-1 md:ml-60 transition-all duration-200">
         {/* Mobile top bar spacer */}
         <div className="md:hidden h-14" />
