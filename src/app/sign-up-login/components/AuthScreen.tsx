@@ -11,7 +11,7 @@ import { Toaster } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 type AuthTab = 'login' | 'signup' | 'reset';
-type UserRole = 'mentor' | 'student_parent';
+type UserRole = 'mentor' | 'student_parent' | 'counselor';
 
 interface LoginForm {
   email: string;
@@ -26,6 +26,7 @@ interface SignupForm {
   confirmPassword: string;
   role: UserRole;
   inviteCode: string;
+  counselorInviteCode: string;
 }
 
 interface ResetForm {
@@ -69,6 +70,8 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       toast.success(`Welcome back, ${profile?.full_name || 'User'}!`);
       if (profile?.role === 'student' || profile?.role === 'parent') {
         router.push('/student-parent-dashboard');
+      } else if (profile?.role === 'counselor') {
+        router.push('/counselor-dashboard');
       } else {
         router.push('/student-dashboard');
       }
@@ -225,11 +228,35 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         linkedMentorId = studentRow.mentor_id;
       }
 
+      // For mentor with counselor invite code: validate it
+      let linkedCounselorId: string | null = null;
+      if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length === 6) {
+        const { data: codeRow, error: codeErr } = await supabase
+          .from('counselor_mentor_invites')
+          .select('id, counselor_id, used_by')
+          .eq('invite_code', data.counselorInviteCode.trim())
+          .maybeSingle();
+
+        if (codeErr || !codeRow) {
+          setError('counselorInviteCode', { message: 'Invalid counselor code. Please check with your counselor.' });
+          setIsLoading(false);
+          return;
+        }
+        if (codeRow.used_by) {
+          setError('counselorInviteCode', { message: 'This counselor code has already been used.' });
+          setIsLoading(false);
+          return;
+        }
+        linkedCounselorId = codeRow.counselor_id;
+      }
+
       // Generate mentor_code for mentors
       const mentorCode =
         data.role === 'mentor'
           ? Math.random().toString(36).substring(2, 10).toUpperCase()
           : null;
+
+      const roleValue = data.role === 'student_parent' ? 'student' : data.role;
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: data.email,
@@ -237,7 +264,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         options: {
           data: {
             full_name: data.fullName,
-            role: data.role === 'student_parent' ? 'student' : 'mentor',
+            role: roleValue,
             mentor_code: mentorCode,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
@@ -268,6 +295,21 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             student_id: linkedStudentId,
           })
           .eq('id', authData.user.id);
+      }
+
+      // If mentor with counselor code: link to counselor
+      if (data.role === 'mentor' && linkedCounselorId && authData.user) {
+        // Update mentor's profile with counselor_id
+        await supabase
+          .from('user_profiles')
+          .update({ counselor_id: linkedCounselorId })
+          .eq('id', authData.user.id);
+
+        // Mark the invite code as used
+        await supabase
+          .from('counselor_mentor_invites')
+          .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+          .eq('invite_code', data.counselorInviteCode.trim());
       }
 
       setIsLoading(false);
@@ -304,10 +346,11 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         <label className="block text-sm font-600 text-foreground mb-2">
           I am joining as <span className="text-negative">*</span>
         </label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           {[
-            { value: 'mentor', label: 'Mentor / Teacher', icon: 'AcademicCapIcon', desc: 'I guide students' },
+            { value: 'mentor', label: 'Mentor', icon: 'AcademicCapIcon', desc: 'I guide students' },
             { value: 'student_parent', label: 'Student / Parent', icon: 'UserGroupIcon', desc: 'I have an invite code' },
+            { value: 'counselor', label: 'Counselor', icon: 'ShieldCheckIcon', desc: 'I supervise mentors' },
           ].map((opt) => (
             <label
               key={opt.value}
@@ -325,10 +368,10 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               <div className="flex items-center gap-2">
                 <Icon
                   name={opt.icon as any}
-                  size={16}
+                  size={15}
                   className={selectedRole === opt.value ? 'text-primary' : 'text-muted-foreground'}
                 />
-                <span className="text-sm font-600 text-foreground">{opt.label}</span>
+                <span className="text-xs font-600 text-foreground">{opt.label}</span>
               </div>
               <p className="text-xs text-muted-foreground">{opt.desc}</p>
             </label>
@@ -442,6 +485,40 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           </div>
           {errors.inviteCode && (
             <p className="text-xs text-negative mt-1">{errors.inviteCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Counselor Invite Code — optional for mentors */}
+      {selectedRole === 'mentor' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Counselor Invite Code <span className="text-muted-foreground font-400">(optional)</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            If your counselor provided a 6-digit code, enter it here to link your account to them.
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest"
+              placeholder="e.g. 123456"
+              maxLength={6}
+              {...register('counselorInviteCode', {
+                validate: (val) => {
+                  if (!val || val.trim() === '') return true;
+                  if (val.trim().length !== 6) return 'Code must be exactly 6 digits';
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="ShieldCheckIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.counselorInviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.counselorInviteCode.message}</p>
           )}
         </div>
       )}

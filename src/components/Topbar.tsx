@@ -11,6 +11,7 @@ const navItems = [
   { label: 'New Session', href: '/new-session', icon: 'PlusCircleIcon' },
   { label: 'Analysis', href: '/student-analysis-history', icon: 'ChartBarIcon' },
   { label: 'Student Portal', href: '/student-parent-dashboard', icon: 'AcademicCapIcon' },
+  { label: 'Counselor', href: '/counselor-dashboard', icon: 'ShieldCheckIcon' },
   { label: 'Settings', href: '/settings', icon: 'Cog6ToothIcon' },
 ] as const;
 
