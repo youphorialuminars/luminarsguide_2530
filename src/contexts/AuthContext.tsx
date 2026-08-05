@@ -44,13 +44,13 @@ export const useAuth = () => {
 // Helper: set role cookie (client-side)
 function setRoleCookie(role: string) {
   if (typeof document !== 'undefined') {
-    document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=Lax`;
+    document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=None; Secure`;
   }
 }
 
 function clearRoleCookie() {
   if (typeof document !== 'undefined') {
-    document.cookie = 'luminar_role=; path=/; max-age=0';
+    document.cookie = 'luminar_role=; path=/; max-age=0; SameSite=None; Secure';
   }
 }
 

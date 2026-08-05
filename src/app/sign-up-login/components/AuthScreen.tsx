@@ -189,22 +189,34 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         return;
       }
       // Fetch profile to determine role
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
         .select('role, full_name')
         .eq('id', authData.user.id)
         .single();
 
+      // Fallback: use user_metadata if profile fetch fails
+      const role: string =
+        profile?.role ||
+        authData.user.user_metadata?.role ||
+        'mentor';
+
+      const fullName: string =
+        profile?.full_name ||
+        authData.user.user_metadata?.full_name ||
+        authData.user.email ||
+        'User';
+
       // Set role cookie for middleware route guarding
-      if (profile?.role) {
-        document.cookie = `luminar_role=${profile.role}; path=/; max-age=604800; SameSite=Lax`;
-      }
-      toast.success(`Welcome back, ${profile?.full_name || 'User'}!`);
-      if (profile?.role === 'student_parent') {
+      document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=None; Secure`;
+
+      toast.success(`Welcome back, ${fullName}!`);
+
+      if (role === 'student_parent' || role === 'student') {
         router.push('/student-parent-dashboard');
-      } else if (profile?.role === 'counselor') {
+      } else if (role === 'counselor') {
         router.push('/counselor-dashboard');
-      } else if (profile?.role === 'school') {
+      } else if (role === 'school') {
         router.push('/school-dashboard');
       } else {
         router.push('/student-dashboard');
