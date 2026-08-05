@@ -11,7 +11,7 @@ import { Toaster } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 type AuthTab = 'login' | 'signup' | 'reset';
-type UserRole = 'mentor' | 'student_parent' | 'counselor';
+type UserRole = 'mentor' | 'student_parent' | 'counselor' | 'school';
 
 interface LoginForm {
   email: string;
@@ -27,6 +27,7 @@ interface SignupForm {
   role: UserRole;
   inviteCode: string;
   counselorInviteCode: string;
+  schoolInviteCode: string;
 }
 
 interface ResetForm {
@@ -72,6 +73,8 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         router.push('/student-parent-dashboard');
       } else if (profile?.role === 'counselor') {
         router.push('/counselor-dashboard');
+      } else if (profile?.role === 'school') {
+        router.push('/school-dashboard');
       } else {
         router.push('/student-dashboard');
       }
@@ -250,6 +253,29 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         linkedCounselorId = codeRow.counselor_id;
       }
 
+      // For mentor/student with school invite code: validate it
+      let linkedSchoolId: string | null = null;
+      const schoolCodeRoles: UserRole[] = ['mentor', 'student_parent'];
+      if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length === 6) {
+        const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
+          .from('school_invite_codes')
+          .select('id, school_id, used_by')
+          .eq('invite_code', data.schoolInviteCode.trim())
+          .maybeSingle();
+
+        if (schoolCodeErr || !schoolCodeRow) {
+          setError('schoolInviteCode', { message: 'Invalid school code. Please check with your school.' });
+          setIsLoading(false);
+          return;
+        }
+        if (schoolCodeRow.used_by) {
+          setError('schoolInviteCode', { message: 'This school code has already been used.' });
+          setIsLoading(false);
+          return;
+        }
+        linkedSchoolId = schoolCodeRow.school_id;
+      }
+
       // Generate mentor_code for mentors
       const mentorCode =
         data.role === 'mentor'
@@ -299,17 +325,28 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
       // If mentor with counselor code: link to counselor
       if (data.role === 'mentor' && linkedCounselorId && authData.user) {
-        // Update mentor's profile with counselor_id
         await supabase
           .from('user_profiles')
           .update({ counselor_id: linkedCounselorId })
           .eq('id', authData.user.id);
 
-        // Mark the invite code as used
         await supabase
           .from('counselor_mentor_invites')
           .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
           .eq('invite_code', data.counselorInviteCode.trim());
+      }
+
+      // If mentor or student with school code: link to school
+      if (linkedSchoolId && authData.user) {
+        await supabase
+          .from('user_profiles')
+          .update({ school_id: linkedSchoolId })
+          .eq('id', authData.user.id);
+
+        await supabase
+          .from('school_invite_codes')
+          .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+          .eq('invite_code', data.schoolInviteCode.trim());
       }
 
       setIsLoading(false);
@@ -346,11 +383,12 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         <label className="block text-sm font-600 text-foreground mb-2">
           I am joining as <span className="text-negative">*</span>
         </label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {[
             { value: 'mentor', label: 'Mentor', icon: 'AcademicCapIcon', desc: 'I guide students' },
             { value: 'student_parent', label: 'Student / Parent', icon: 'UserGroupIcon', desc: 'I have an invite code' },
             { value: 'counselor', label: 'Counselor', icon: 'ShieldCheckIcon', desc: 'I supervise mentors' },
+            { value: 'school', label: 'School', icon: 'BuildingLibraryIcon', desc: 'Institutional account' },
           ].map((opt) => (
             <label
               key={opt.value}
@@ -519,6 +557,40 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           </div>
           {errors.counselorInviteCode && (
             <p className="text-xs text-negative mt-1">{errors.counselorInviteCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* School Invite Code — optional for mentors and students */}
+      {(selectedRole === 'mentor' || selectedRole === 'student_parent') && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            School Invite Code <span className="text-muted-foreground font-400">(optional)</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            If your school provided a 6-digit code, enter it here to link your account to the school.
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest"
+              placeholder="e.g. 789012"
+              maxLength={6}
+              {...register('schoolInviteCode', {
+                validate: (val) => {
+                  if (!val || val.trim() === '') return true;
+                  if (val.trim().length !== 6) return 'Code must be exactly 6 digits';
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="BuildingLibraryIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.schoolInviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.schoolInviteCode.message}</p>
           )}
         </div>
       )}
