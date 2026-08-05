@@ -104,7 +104,7 @@ Requirements:
 - strengths: 3-5 specific, evidence-based strengths drawn from the observations
 - weaknesses: 3-5 specific development areas (frame constructively, not harshly)
 - approachRequired: 3-5 concrete pedagogical strategies the mentor should employ
-- taskList: 4-6 highly practical, immediately actionable tasks for the student — these must be specific to the five observation areas and the pillar "${pillar}"`;
+- taskList: 4-6 highly practical, immediately actionable tasks for the student — CRITICAL CONSTRAINT: every task in the taskList MUST be an individual, self-directed activity that can be completed independently at home or online (e.g., watch a video, complete an online quiz, write a journal entry, read an article, do a solo exercise). Do NOT suggest group activities, in-person meetups, or tasks requiring other people. Tasks must be specific to the pillar "${pillar}" and the five observation areas.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
