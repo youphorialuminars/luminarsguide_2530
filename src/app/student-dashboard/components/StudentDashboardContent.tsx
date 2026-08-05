@@ -13,7 +13,7 @@ import { Toaster } from 'sonner';
 
 type SortOption = 'name' | 'score' | 'sessions' | 'lastSession';
 type FilterOption = 'all' | 'up' | 'down' | 'stable';
-type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks';
+type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks' | 'calendar';
 
 interface Survey {
   id: string;
@@ -43,6 +43,17 @@ interface MentorReflection {
 interface PeerStats {
   avgScore: number;
   myScore: number;
+}
+
+interface LiveSession {
+  id: string;
+  title: string;
+  meeting_date: string;
+  meeting_time: string;
+  jitsi_room: string;
+  jitsi_url: string;
+  student_id: string;
+  notes: string | null;
 }
 
 // ─── Performance Score Calculator ────────────────────────────────────────────
@@ -98,6 +109,18 @@ export default function StudentDashboardContent() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [students, setStudents] = useState<Student[]>(mockStudents);
   const [activeTab, setActiveTab] = useState<MentorTab>('roster');
+
+  // Live Sessions state
+  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionForm, setSessionForm] = useState({
+    student_id: '',
+    title: 'Live Mentorship Session',
+    meeting_date: '',
+    meeting_time: '10:00',
+    notes: '',
+  });
+  const [schedulingSession, setSchedulingSession] = useState(false);
 
   // Surveys state
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -262,11 +285,29 @@ export default function StudentDashboardContent() {
     setReflectionsLoading(false);
   }, [supabase]);
 
+  // ─── Load Live Sessions ────────────────────────────────────────────────────
+  const loadLiveSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSessionsLoading(false); return; }
+    const { data } = await supabase
+      .from('meetings')
+      .select('*')
+      .eq('mentor_id', user.id)
+      .order('meeting_date', { ascending: true });
+    setLiveSessions(data || []);
+    setSessionsLoading(false);
+  }, [supabase]);
+
   useEffect(() => {
     if (activeTab === 'surveys') loadSurveys();
     if (activeTab === 'tasks') loadTasks();
     if (activeTab === 'reflections') loadReflections();
-  }, [activeTab, loadSurveys, loadTasks, loadReflections]);
+    if (activeTab === 'calendar') {
+      loadLiveSessions();
+      loadTasks(); // to get dbStudents
+    }
+  }, [activeTab, loadSurveys, loadTasks, loadReflections, loadLiveSessions]);
 
   // ─── Survey Handlers ───────────────────────────────────────────────────────
   const handleAddSurvey = async () => {
@@ -366,6 +407,51 @@ export default function StudentDashboardContent() {
     setSubmittingReflection(false);
   };
 
+  // ─── Schedule Live Session ─────────────────────────────────────────────────
+  const handleScheduleSession = async () => {
+    if (!sessionForm.student_id || !sessionForm.meeting_date || !sessionForm.meeting_time) {
+      toast.error('Please fill in all required fields.');
+      return;
+    }
+    setSchedulingSession(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSchedulingSession(false); return; }
+
+    // Auto-generate unique Jitsi room ID
+    const roomId = `luminar-${user.id.slice(0, 8)}-${Date.now()}`;
+    const jitsiUrl = `https://meet.jit.si/${roomId}`;
+
+    const { error } = await supabase.from('meetings').insert({
+      mentor_id: user.id,
+      student_id: sessionForm.student_id,
+      title: sessionForm.title.trim() || 'Live Mentorship Session',
+      meeting_date: sessionForm.meeting_date,
+      meeting_time: sessionForm.meeting_time,
+      jitsi_room: roomId,
+      jitsi_url: jitsiUrl,
+      notes: sessionForm.notes.trim() || null,
+    });
+
+    if (error) {
+      toast.error('Failed to schedule session: ' + error.message);
+    } else {
+      toast.success('Live session scheduled! Jitsi room auto-generated.');
+      setSessionForm((f) => ({ ...f, meeting_date: '', meeting_time: '10:00', notes: '', title: 'Live Mentorship Session' }));
+      loadLiveSessions();
+    }
+    setSchedulingSession(false);
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    const { error } = await supabase.from('meetings').delete().eq('id', id);
+    if (error) {
+      toast.error('Failed to delete session.');
+    } else {
+      toast.success('Session removed.');
+      setLiveSessions((prev) => prev.filter((s) => s.id !== id));
+    }
+  };
+
   const myPerfScore = calcPerformanceScore(reflections, avgScore, avgFeedbackScore);
 
   const filterOptions: { value: FilterOption; label: string; icon: string }[] = [
@@ -377,6 +463,7 @@ export default function StudentDashboardContent() {
 
   const mentorTabs: { id: MentorTab; label: string; icon: string }[] = [
     { id: 'roster', label: 'Student Roster', icon: 'UserGroupIcon' },
+    { id: 'calendar', label: 'Schedule Sessions', icon: 'CalendarDaysIcon' },
     { id: 'reflections', label: 'Self-Reflection & Peer Ranking', icon: 'SparklesIcon' },
     { id: 'surveys', label: 'Manage Surveys', icon: 'ClipboardDocumentListIcon' },
     { id: 'tasks', label: 'Assign Tasks', icon: 'CheckCircleIcon' },
@@ -431,6 +518,160 @@ export default function StudentDashboardContent() {
           </button>
         ))}
       </div>
+
+      {/* ── SCHEDULE SESSIONS TAB ─────────────────────────────────────────── */}
+      {activeTab === 'calendar' && (
+        <div className="flex flex-col gap-6">
+          {/* Schedule Form */}
+          <div className="card-elevated p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="VideoCameraIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Schedule Live Session</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              A unique Jitsi Meet room will be auto-generated. Students will see a "Join Meeting" button on their calendar.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Student <span className="text-negative">*</span></label>
+                {dbStudents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No students linked yet.</p>
+                ) : (
+                  <select
+                    className="input-mystic"
+                    value={sessionForm.student_id}
+                    onChange={(e) => setSessionForm((f) => ({ ...f, student_id: e.target.value }))}
+                  >
+                    <option value="">Select student…</option>
+                    {dbStudents.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Session Title</label>
+                <input
+                  className="input-mystic"
+                  placeholder="Live Mentorship Session"
+                  value={sessionForm.title}
+                  onChange={(e) => setSessionForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Date <span className="text-negative">*</span></label>
+                <input
+                  type="date"
+                  className="input-mystic"
+                  value={sessionForm.meeting_date}
+                  onChange={(e) => setSessionForm((f) => ({ ...f, meeting_date: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Time <span className="text-negative">*</span></label>
+                <input
+                  type="time"
+                  className="input-mystic"
+                  value={sessionForm.meeting_time}
+                  onChange={(e) => setSessionForm((f) => ({ ...f, meeting_time: e.target.value }))}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-600 text-foreground mb-1.5">Notes (optional)</label>
+                <textarea
+                  className="input-mystic resize-none min-h-[72px]"
+                  placeholder="Agenda, topics to cover, preparation notes…"
+                  value={sessionForm.notes}
+                  onChange={(e) => setSessionForm((f) => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/20 flex items-start gap-2">
+              <Icon name="InformationCircleIcon" size={15} className="text-primary flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                A unique <span className="font-600 text-foreground">Jitsi Meet room ID</span> will be auto-generated when you schedule. No external URL needed.
+              </p>
+            </div>
+            <button
+              className="btn-primary mt-4"
+              onClick={handleScheduleSession}
+              disabled={schedulingSession || !sessionForm.student_id || !sessionForm.meeting_date}
+            >
+              {schedulingSession ? (
+                <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Scheduling…</>
+              ) : (
+                <><Icon name="VideoCameraIcon" size={15} /> Schedule Live Session</>
+              )}
+            </button>
+          </div>
+
+          {/* Scheduled Sessions List */}
+          <div className="card-elevated p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="CalendarDaysIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Scheduled Sessions</h2>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {liveSessions.length} total
+              </span>
+            </div>
+            {sessionsLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : liveSessions.length === 0 ? (
+              <div className="text-center py-10">
+                <Icon name="CalendarDaysIcon" size={36} className="text-muted-foreground mx-auto mb-3 opacity-40" />
+                <p className="text-sm text-muted-foreground">No sessions scheduled yet.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {liveSessions.map((session) => (
+                  <div key={session.id} className="flex items-start gap-4 p-4 rounded-xl bg-secondary border border-border">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex flex-col items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-700 text-primary">
+                        {new Date(session.meeting_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' })}
+                      </span>
+                      <span className="text-lg font-800 text-primary leading-none">
+                        {new Date(session.meeting_date + 'T00:00:00').getDate()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-700 text-foreground">{session.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {getStudentName(session.student_id)} · {session.meeting_time}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        <Icon name="VideoCameraIcon" size={11} className="text-primary" />
+                        <span className="text-xs text-primary font-mono truncate">{session.jitsi_room}</span>
+                      </div>
+                      {session.notes && (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{session.notes}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <a
+                        href={session.jitsi_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-primary text-xs py-1.5 px-3"
+                      >
+                        <Icon name="VideoCameraIcon" size={13} />
+                        Join
+                      </a>
+                      <button
+                        onClick={() => handleDeleteSession(session.id)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors"
+                      >
+                        <Icon name="TrashIcon" size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── ROSTER TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'roster' && (

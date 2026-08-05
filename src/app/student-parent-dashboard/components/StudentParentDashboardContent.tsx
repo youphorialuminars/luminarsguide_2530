@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
+import StudentCalendar from './StudentCalendar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StudentProfile {
@@ -240,7 +241,7 @@ export default function StudentParentDashboardContent() {
       if (!profile) { router.push('/sign-up-login'); return; }
       setUserProfile(profile);
 
-      if (profile.role === 'mentor') { router.push('/student-dashboard'); return; }
+      // Middleware handles role-based redirects; no manual redirect needed here
 
       if (profile.student_id) {
         const { data: student } = await supabase.from('students').select('*').eq('id', profile.student_id).single();
@@ -666,44 +667,13 @@ export default function StudentParentDashboardContent() {
       {/* ── CALENDAR TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'calendar' && (
         <div className="flex flex-col gap-6">
+          <StudentCalendar />
           <div className="card-mystic p-5">
             <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
               <Icon name="CalendarDaysIcon" size={18} className="text-primary" />
               Attendance Record
             </h2>
             <AttendanceCalendarView records={attendance} />
-          </div>
-          <div className="card-mystic p-5">
-            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
-              <Icon name="VideoCameraIcon" size={18} className="text-primary" />
-              Scheduled Sessions
-            </h2>
-            {meetings.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Icon name="CalendarDaysIcon" size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No sessions scheduled yet.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {meetings.map((m) => (
-                  <div key={m.id} className="flex items-start gap-3 p-4 rounded-xl bg-secondary/40 border border-border">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Icon name="VideoCameraIcon" size={18} className="text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-700 text-foreground">{m.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">📅 {formatDate(m.meeting_date)} &nbsp;⏰ {m.meeting_time}</p>
-                      {m.notes && <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{m.notes}</p>}
-                    </div>
-                    {m.jitsi_url && (
-                      <a href={m.jitsi_url} target="_blank" rel="noopener noreferrer" className="btn-primary text-xs py-1.5 px-3 flex-shrink-0">
-                        <Icon name="VideoCameraIcon" size={13} /> Join Call
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}

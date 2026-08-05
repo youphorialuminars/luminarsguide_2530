@@ -193,8 +193,12 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         .eq('id', authData.user.id)
         .single();
 
+      // Set role cookie for middleware route guarding
+      if (profile?.role) {
+        document.cookie = `luminar_role=${profile.role}; path=/; max-age=604800; SameSite=Lax`;
+      }
       toast.success(`Welcome back, ${profile?.full_name || 'User'}!`);
-      if (profile?.role === 'student' || profile?.role === 'parent') {
+      if (profile?.role === 'student_parent') {
         router.push('/student-parent-dashboard');
       } else if (profile?.role === 'counselor') {
         router.push('/counselor-dashboard');

@@ -51,6 +51,7 @@
   "dependencies": {
     "@dhiwise/component-tagger": "^1.0.16",
     "@heroicons/react": "^2.2.0",
+    "@jitsi/react-sdk": "1.4.4",
     "@rocketnew/llm-sdk": "^1.1.0",
     "@supabase/ssr": "0.5.2",
     "@supabase/supabase-js": "2.49.4",
