@@ -27,16 +27,26 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [today, setToday] = useState<{ year: number; month: number; day: number } | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    title: string;
+    event_date: string;
+    event_type: 'performance_schedule' | 'holiday';
+  }>({
     title: '',
     event_date: '',
-    event_type: 'holiday\' as \'performance_schedule\' | \'holiday',
+    event_type: 'holiday',
   });
+
+  useEffect(() => {
+    const now = new Date();
+    setToday({ year: now.getFullYear(), month: now.getMonth(), day: now.getDate() });
+  }, []);
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -214,8 +224,7 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
             const dayEvents = eventsByDate.get(dateStr) || [];
             const hasPerformance = dayEvents.some((e) => e.event_type === 'performance_schedule');
             const hasHoliday = dayEvents.some((e) => e.event_type === 'holiday');
-            const today = new Date();
-            const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+            const isToday = today !== null && today.year === year && today.month === month && today.day === day;
 
             return (
               <div
