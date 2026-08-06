@@ -45,30 +45,33 @@ const ROLE_ICONS: Record<string, string> = {
   school: 'BuildingLibraryIcon',
 };
 
-export default function Sidebar() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const { profile, signOut } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+// ─── Extracted as a top-level component to prevent setState-during-render ─────
+interface SidebarContentProps {
+  mobile?: boolean;
+  collapsed: boolean;
+  profile: any;
+  role: string;
+  visibleItems: NavItem[];
+  pathname: string;
+  signingOut: boolean;
+  onCollapse: () => void;
+  onMobileClose: () => void;
+  onSignOut: () => void;
+}
 
-  const role = profile?.role || 'mentor';
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
-
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    try {
-      await signOut();
-      router.push('/sign-up-login');
-    } catch {
-      toast.error('Sign out failed');
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
-  const SidebarContent = ({ mobile = false }: { mobile?: boolean }) => (
+function SidebarContent({
+  mobile = false,
+  collapsed,
+  profile,
+  role,
+  visibleItems,
+  pathname,
+  signingOut,
+  onCollapse,
+  onMobileClose,
+  onSignOut,
+}: SidebarContentProps) {
+  return (
     <div className={`flex flex-col h-full ${mobile ? 'p-4' : 'p-3'}`}>
       {/* Logo + Collapse */}
       <div className="flex items-center justify-between mb-6 px-1">
@@ -82,7 +85,7 @@ export default function Sidebar() {
         </Link>
         {!mobile && (
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={onCollapse}
             className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground flex-shrink-0"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -107,7 +110,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => setMobileOpen(false)}
+              onClick={onMobileClose}
               title={collapsed && !mobile ? item.label : undefined}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-600 transition-all duration-150 group relative ${
                 isActive
@@ -145,7 +148,7 @@ export default function Sidebar() {
           </div>
         )}
         <button
-          onClick={handleSignOut}
+          onClick={onSignOut}
           disabled={signingOut}
           title={collapsed && !mobile ? 'Sign Out' : undefined}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-500 text-muted-foreground hover:bg-secondary hover:text-foreground transition-all ${
@@ -158,6 +161,42 @@ export default function Sidebar() {
       </div>
     </div>
   );
+}
+
+export default function Sidebar() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { profile, signOut } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const role = profile?.role || 'mentor';
+  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.push('/sign-up-login');
+    } catch {
+      toast.error('Sign out failed');
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const sharedProps = {
+    collapsed,
+    profile,
+    role,
+    visibleItems,
+    pathname,
+    signingOut,
+    onCollapse: () => setCollapsed(!collapsed),
+    onMobileClose: () => setMobileOpen(false),
+    onSignOut: handleSignOut,
+  };
 
   return (
     <>
@@ -167,7 +206,7 @@ export default function Sidebar() {
           collapsed ? 'w-16' : 'w-60'
         }`}
       >
-        <SidebarContent />
+        <SidebarContent {...sharedProps} />
       </aside>
 
       {/* Mobile Top Bar */}
@@ -193,7 +232,7 @@ export default function Sidebar() {
             onClick={() => setMobileOpen(false)}
           />
           <div className="md:hidden fixed top-0 left-0 h-full w-72 z-50 bg-card border-r border-border shadow-xl animate-fade-in">
-            <SidebarContent mobile />
+            <SidebarContent {...sharedProps} mobile />
           </div>
         </>
       )}
