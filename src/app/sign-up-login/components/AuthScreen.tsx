@@ -476,7 +476,18 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
       if (signUpError) {
         console.error('[SignUp] auth.signUp error:', signUpError);
-        setError('email', { message: signUpError.message });
+        // Handle "User already registered" gracefully
+        if (
+          signUpError.message?.toLowerCase().includes('user already registered') ||
+          signUpError.message?.toLowerCase().includes('already registered') ||
+          signUpError.status === 422
+        ) {
+          setError('email', {
+            message: 'An account with this email already exists. Please sign in instead.',
+          });
+        } else {
+          setError('email', { message: signUpError.message });
+        }
         setIsLoading(false);
         return;
       }
