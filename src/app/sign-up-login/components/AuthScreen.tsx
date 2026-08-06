@@ -347,7 +347,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const onSubmit = async (data: SignupForm) => {
     setIsLoading(true);
     try {
-      // For student: validate invite code first
+      // For student: validate mentor invite code and resolve mentor UUID
       let linkedStudentId: string | null = null;
       let linkedMentorId: string | null = null;
 
@@ -357,28 +357,25 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
-        // Look up the student by invite code
-        const { data: studentRow, error: inviteErr } = await supabase
-          .from('students')
-          .select('id, mentor_id, invite_used')
-          .eq('invite_code', data.inviteCode.trim())
+        // Look up the MENTOR by their mentor_code in user_profiles
+        // This resolves the invite code to the mentor's actual UUID
+        const { data: mentorRow, error: mentorLookupErr } = await supabase
+          .from('user_profiles')
+          .select('id, role, mentor_code')
+          .eq('mentor_code', data.inviteCode.trim().toUpperCase())
+          .eq('role', 'mentor')
           .maybeSingle();
 
-        if (inviteErr || !studentRow) {
+        if (mentorLookupErr || !mentorRow) {
           setError('inviteCode', { message: 'Invalid invite code. Please check with your mentor.' });
           setIsLoading(false);
           return;
         }
-        if (studentRow.invite_used) {
-          setError('inviteCode', { message: 'This invite code has already been used.' });
-          setIsLoading(false);
-          return;
-        }
-        linkedStudentId = studentRow.id;
-        linkedMentorId = studentRow.mentor_id;
+        // The mentor's UUID is now resolved
+        linkedMentorId = mentorRow.id;
       }
 
-      // For parent: validate parent link code
+      // For parent: validate parent link code and resolve student UUID
       let parentLinkedStudentId: string | null = null;
       if (data.role === 'parent') {
         if (!data.parentLinkCode || data.parentLinkCode.trim().length !== 6) {
@@ -386,9 +383,10 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
+        // Look up the student by parent_link_code to get their actual UUID
         const { data: studentRow, error: plcErr } = await supabase
           .from('students')
-          .select('id, parent_link_code')
+          .select('id, parent_link_code, mentor_id')
           .eq('parent_link_code', data.parentLinkCode.trim())
           .maybeSingle();
 
@@ -397,10 +395,11 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
+        // Store the student's UUID as the linked_student_id
         parentLinkedStudentId = studentRow.id;
       }
 
-      // For mentor with counselor invite code: validate it
+      // For mentor with counselor invite code: validate it and resolve counselor UUID
       let linkedCounselorId: string | null = null;
       if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length === 6) {
         const { data: codeRow, error: codeErr } = await supabase
@@ -419,10 +418,11 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
+        // counselor_id is already the counselor's UUID from the invites table
         linkedCounselorId = codeRow.counselor_id;
       }
 
-      // For mentor/student with school invite code: validate it
+      // For mentor/student with school invite code: validate it and resolve school UUID
       let linkedSchoolId: string | null = null;
       const schoolCodeRoles: UserRole[] = ['mentor', 'student'];
       if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length === 6) {
@@ -442,10 +442,11 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
+        // school_id is already the school's UUID from the invite codes table
         linkedSchoolId = schoolCodeRow.school_id;
       }
 
-      // Generate mentor_code for mentors
+      // Generate mentor_code for mentors (8-char alphanumeric, uppercase)
       const mentorCode =
         data.role === 'mentor'
           ? Math.random().toString(36).substring(2, 10).toUpperCase()
@@ -462,7 +463,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             full_name: data.fullName,
             role: roleValue,
             mentor_code: mentorCode,
-            // Pass all linking IDs in metadata so the DB trigger (SECURITY DEFINER)
+            // Pass all resolved UUIDs in metadata so the DB trigger (SECURITY DEFINER)
             // can write them to user_profiles atomically — bypassing RLS session issues.
             mentor_id: linkedMentorId || null,
             student_id: linkedStudentId || null,
@@ -536,20 +537,6 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
         setIsLoading(false);
         return;
-      }
-
-      // If student: link their user_id to the student row
-      if (data.role === 'student' && linkedStudentId) {
-        const { error: studentLinkErr } = await supabase
-          .from('students')
-          .update({
-            student_user_id: authData.user.id,
-            invite_used: true,
-          })
-          .eq('id', linkedStudentId);
-        if (studentLinkErr) {
-          console.error('[SignUp] students link error:', studentLinkErr);
-        }
       }
 
       // If mentor with counselor code: mark invite as used

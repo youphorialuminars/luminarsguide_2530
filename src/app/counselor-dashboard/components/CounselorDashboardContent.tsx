@@ -328,12 +328,17 @@ export default function CounselorDashboardContent() {
       }
       setCounselorProfile(profile);
 
-      // Load linked mentors
-      const { data: mentorData } = await supabase
+      // Load linked mentors — counselor_id in user_profiles stores the counselor's UUID
+      // This is the deep relational link: user_profiles.counselor_id = auth.uid()
+      const { data: mentorData, error: mentorErr } = await supabase
         .from('user_profiles')
         .select('id, full_name, email, mentor_code, counselor_id')
         .eq('counselor_id', user.id)
         .eq('role', 'mentor');
+
+      if (mentorErr) {
+        console.error('[CounselorDashboard] Failed to load linked mentors:', mentorErr.message);
+      }
 
       const linkedMentors = mentorData || [];
       setMentors(linkedMentors);
@@ -341,31 +346,38 @@ export default function CounselorDashboardContent() {
       if (linkedMentors.length > 0) {
         const mentorIds = linkedMentors.map((m) => m.id);
 
+        // Fetch student IDs first for the feedback sub-query
+        const { data: studentIdRows } = await supabase
+          .from('students')
+          .select('id')
+          .in('mentor_id', mentorIds);
+        const studentIds = (studentIdRows || []).map((s: any) => s.id);
+
         const [studResult, sessResult, attResult, fbResult] = await Promise.all([
           supabase.from('students').select('*').in('mentor_id', mentorIds),
           supabase.from('sessions').select('id, mentor_id, student_id, topic, score, created_at').in('mentor_id', mentorIds),
           supabase.from('attendance').select('student_id, status').in('mentor_id', mentorIds),
-          supabase.from('mentor_feedback').select('student_id, mentor_interaction_score, active_listening_score, teaching_clarity_score, fruitful_comments').in('student_id',
-            (await supabase.from('students').select('id').in('mentor_id', mentorIds)).data?.map((s: any) => s.id) || []
-          ),
+          studentIds.length > 0
+            ? supabase.from('mentor_feedback').select('student_id, mentor_interaction_score, active_listening_score, teaching_clarity_score, fruitful_comments').in('student_id', studentIds)
+            : Promise.resolve({ data: [] }),
         ]);
 
         const studentList = studResult.data || [];
         setStudents(studentList);
         setSessions(sessResult.data || []);
         setAttendance(attResult.data || []);
-        setFeedback(fbResult.data || []);
+        setFeedback((fbResult as any).data || []);
 
         // Load parent engagement scores
         if (studentList.length > 0) {
-          const studentIds = studentList.map((s: any) => s.id);
+          const allStudentIds = studentList.map((s: any) => s.id);
           const { data: obsData } = await supabase
             .from('parent_observations')
             .select('student_id, submitted_by')
-            .in('student_id', studentIds);
+            .in('student_id', allStudentIds);
 
           const scoreMap: Record<string, number> = {};
-          studentIds.forEach((id: string) => { scoreMap[id] = 0; });
+          allStudentIds.forEach((id: string) => { scoreMap[id] = 0; });
           (obsData || []).forEach((o: any) => {
             if (scoreMap[o.student_id] !== undefined) scoreMap[o.student_id]++;
           });

@@ -191,23 +191,31 @@ export default function ParentsHubContent() {
         return;
       }
 
-      // Load linked student
-      const { data: student } = await supabase
+      // linked_student_id is stored as TEXT (UUID string) in user_profiles
+      // Query students table using the UUID string — Postgres coerces text → uuid
+      const { data: student, error: studentErr } = await supabase
         .from('students')
         .select('id, name, grade, mentor_id, avg_score, sessions, trend, topics')
         .eq('id', profile.linked_student_id)
-        .single();
-      setLinkedStudent(student);
+        .maybeSingle();
+
+      if (studentErr) {
+        console.error('[ParentsHub] Failed to load linked student:', studentErr.message);
+      }
+      setLinkedStudent(student ?? null);
 
       if (student) {
-        // Load mentor profile
+        // Load mentor profile using the student's mentor_id UUID
         if (student.mentor_id) {
-          const { data: mentor } = await supabase
+          const { data: mentor, error: mentorErr } = await supabase
             .from('user_profiles')
             .select('id, full_name, email, mentor_code')
             .eq('id', student.mentor_id)
-            .single();
-          setMentorProfile(mentor);
+            .maybeSingle();
+          if (mentorErr) {
+            console.error('[ParentsHub] Failed to load mentor profile:', mentorErr.message);
+          }
+          setMentorProfile(mentor ?? null);
         }
 
         const [taskResult, attResult, sessResult, mfResult] = await Promise.all([

@@ -120,15 +120,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('[AuthContext] NEXT_PUBLIC_SUPABASE_ANON_KEY is not set. Sign-up will fail.');
     }
 
+    const meta = metadata as Record<string, any>;
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          full_name: (metadata as any)?.full_name || (metadata as any)?.fullName || '',
-          role: (metadata as any)?.role || 'mentor',
-          mentor_code: (metadata as any)?.mentor_code || null,
-          avatar_url: (metadata as any)?.avatarUrl || '',
+          full_name: meta?.full_name || meta?.fullName || '',
+          role: meta?.role || 'mentor',
+          mentor_code: meta?.mentor_code || null,
+          // Pass all resolved UUID foreign keys so the SECURITY DEFINER trigger
+          // can write them atomically to user_profiles, bypassing RLS session issues
+          mentor_id: meta?.mentor_id || null,
+          student_id: meta?.student_id || null,
+          linked_student_id: meta?.linked_student_id || null,
+          counselor_id: meta?.counselor_id || null,
+          school_id: meta?.school_id || null,
+          avatar_url: meta?.avatarUrl || '',
         },
         emailRedirectTo: `${siteUrl}/auth/callback`
       }

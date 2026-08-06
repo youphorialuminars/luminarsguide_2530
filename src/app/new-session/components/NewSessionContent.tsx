@@ -188,18 +188,22 @@ export default function NewSessionContent() {
     watchedComprehensive,
   ].join(' ');
 
-  // Load real students from DB
+  // Load real students from DB — fetches students linked to this mentor via mentor_id (UUID)
   useEffect(() => {
     const loadStudents = async () => {
       setLoadingStudents(true);
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { setLoadingStudents(false); return; }
       setMentorId(user.id);
-      const { data } = await supabase
-        .from('students')
-        .select('id, name, grade, age, gender, avg_score, sessions, last_session')
-        .eq('mentor_id', user.id)
-        .order('name');
+
+      // Fetch all students where mentor_id matches the current user's UUID
+      // This is the deep relational link: students.mentor_id = user_profiles.id
+      const { data, error } = await supabase
+        .from('students').select('id, name, grade, age, gender, avg_score, sessions, last_session').eq('mentor_id', user.id).order('name');
+
+      if (error) {
+        console.error('[NewSession] Failed to load students:', error.message);
+      }
       setStudents(data || []);
       setLoadingStudents(false);
     };

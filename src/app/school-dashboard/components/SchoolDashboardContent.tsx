@@ -98,12 +98,17 @@ export default function SchoolDashboardContent() {
   const loadData = useCallback(async (uid: string) => {
     setIsLoading(true);
     try {
-      // Load linked mentors
-      const { data: mentorData } = await supabase
+      // Load linked mentors — school_id in user_profiles stores the school's UUID
+      // This is the deep relational link: user_profiles.school_id = uid (school's auth UUID)
+      const { data: mentorData, error: mentorErr } = await supabase
         .from('user_profiles')
         .select('id, full_name, email, mentor_code')
         .eq('school_id', uid)
         .eq('role', 'mentor');
+
+      if (mentorErr) {
+        console.error('[SchoolDashboard] Failed to load linked mentors:', mentorErr.message);
+      }
       const mentorList: MentorProfile[] = mentorData || [];
       setMentors(mentorList);
 
@@ -111,10 +116,14 @@ export default function SchoolDashboardContent() {
 
       // Load students under those mentors
       if (mentorIds.length > 0) {
-        const { data: studentData } = await supabase
+        const { data: studentData, error: studentErr } = await supabase
           .from('students')
           .select('id, name, grade, mentor_id, avg_score, sessions')
           .in('mentor_id', mentorIds);
+
+        if (studentErr) {
+          console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
+        }
         setStudents(studentData || []);
 
         const studentIds = (studentData || []).map((s: StudentRow) => s.id);
@@ -156,7 +165,8 @@ export default function SchoolDashboardContent() {
         .eq('school_id', uid)
         .order('created_at', { ascending: false });
       setInviteCodes(codeData || []);
-    } catch {
+    } catch (err) {
+      console.error('[SchoolDashboard] Unexpected error:', err);
       toast.error('Failed to load school data');
     }
     setIsLoading(false);
