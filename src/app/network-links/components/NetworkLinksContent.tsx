@@ -5,7 +5,6 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { Toaster } from 'sonner';
 
 interface LinkedStudent {
   id: string;
@@ -724,7 +723,7 @@ export default function NetworkLinksContent() {
 
   return (
     <div className="animate-fade-in">
-      <Toaster position="top-right" />
+      
 
       <div className="mb-6">
         <h1 className="text-2xl font-700 text-foreground">Network &amp; Links</h1>
