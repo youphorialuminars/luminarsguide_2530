@@ -308,6 +308,7 @@ export default function CounselorDashboardContent() {
   const [reports, setReports] = useState<Record<string, string>>({});
   const [generatingCode, setGeneratingCode] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -349,10 +350,27 @@ export default function CounselorDashboardContent() {
           ),
         ]);
 
-        setStudents(studResult.data || []);
+        const studentList = studResult.data || [];
+        setStudents(studentList);
         setSessions(sessResult.data || []);
         setAttendance(attResult.data || []);
         setFeedback(fbResult.data || []);
+
+        // Load parent engagement scores
+        if (studentList.length > 0) {
+          const studentIds = studentList.map((s: any) => s.id);
+          const { data: obsData } = await supabase
+            .from('parent_observations')
+            .select('student_id, submitted_by')
+            .in('student_id', studentIds);
+
+          const scoreMap: Record<string, number> = {};
+          studentIds.forEach((id: string) => { scoreMap[id] = 0; });
+          (obsData || []).forEach((o: any) => {
+            if (scoreMap[o.student_id] !== undefined) scoreMap[o.student_id]++;
+          });
+          setParentEngagementScores(scoreMap);
+        }
       }
 
       // Load invite codes
@@ -675,6 +693,9 @@ Please synthesize this data into a qualitative performance report covering: (1) 
                   studentAtt.length > 0
                     ? Math.round((studentAtt.filter((a) => a.status === 'present').length / studentAtt.length) * 100)
                     : 0;
+                const parentEngScore = parentEngagementScores[student.id] || 0;
+                const parentEngLabel = parentEngScore >= 5 ? 'High' : parentEngScore >= 2 ? 'Medium' : 'Low';
+                const parentEngCls = parentEngScore >= 5 ? 'bg-green-50 text-green-700 border-green-200' : parentEngScore >= 2 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200';
 
                 return (
                   <button
@@ -702,6 +723,9 @@ Please synthesize this data into a qualitative performance report covering: (1) 
                         attRate >= 80 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'
                       }`}>
                         {attRate}% attendance
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full border font-600 ${parentEngCls}`}>
+                        👨‍👩‍👧 {parentEngLabel}
                       </span>
                     </div>
                     {mentor && (

@@ -6,7 +6,8 @@ const ROLE_ROUTES: Record<string, string[]> = {
   '/student-dashboard': ['mentor'],
   '/new-session': ['mentor'],
   '/student-analysis-history': ['mentor'],
-  '/student-parent-dashboard': ['student_parent'],
+  '/student-parent-dashboard': ['student_parent', 'student'],
+  '/parents-hub': ['parent'],
   '/counselor-dashboard': ['counselor'],
   '/counselor-student-view': ['counselor'],
   '/school-dashboard': ['school'],
@@ -17,6 +18,8 @@ const ROLE_ROUTES: Record<string, string[]> = {
 const ROLE_HOME: Record<string, string> = {
   mentor: '/student-dashboard',
   student_parent: '/student-parent-dashboard',
+  student: '/student-parent-dashboard',
+  parent: '/parents-hub',
   counselor: '/counselor-dashboard',
   school: '/school-dashboard',
 };
@@ -68,6 +71,7 @@ export const config = {
     '/new-session/:path*',
     '/student-analysis-history/:path*',
     '/student-parent-dashboard/:path*',
+    '/parents-hub/:path*',
     '/counselor-dashboard/:path*',
     '/counselor-student-view/:path*',
     '/school-dashboard/:path*',

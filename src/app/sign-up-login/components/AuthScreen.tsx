@@ -11,7 +11,7 @@ import { Toaster } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 type AuthTab = 'login' | 'signup' | 'reset';
-type UserRole = 'mentor' | 'student_parent' | 'counselor' | 'school';
+type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school';
 
 // Demo credentials for each role
 const DEMO_CREDENTIALS = [
@@ -25,10 +25,10 @@ const DEMO_CREDENTIALS = [
     activeBg: 'bg-violet-500/15 border-violet-500/50',
   },
   {
-    role: 'Student / Parent',
+    role: 'Student',
     email: 'demo.student@luminarsguide.com',
     password: 'Demo@Student2025',
-    icon: 'UserGroupIcon',
+    icon: 'UserIcon',
     color: 'text-sky-400',
     bg: 'bg-sky-500/10 border-sky-500/20 hover:border-sky-500/50',
     activeBg: 'bg-sky-500/15 border-sky-500/50',
@@ -147,6 +147,7 @@ interface SignupForm {
   confirmPassword: string;
   role: UserRole;
   inviteCode: string;
+  parentLinkCode: string;
   counselorInviteCode: string;
   schoolInviteCode: string;
 }
@@ -214,6 +215,8 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
       if (role === 'student_parent' || role === 'student') {
         router.push('/student-parent-dashboard');
+      } else if (role === 'parent') {
+        router.push('/parents-hub');
       } else if (role === 'counselor') {
         router.push('/counselor-dashboard');
       } else if (role === 'school') {
@@ -344,13 +347,13 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const onSubmit = async (data: SignupForm) => {
     setIsLoading(true);
     try {
-      // For student/parent: validate invite code first
+      // For student: validate invite code first
       let linkedStudentId: string | null = null;
       let linkedMentorId: string | null = null;
 
-      if (data.role === 'student_parent') {
+      if (data.role === 'student') {
         if (!data.inviteCode || data.inviteCode.trim().length !== 8) {
-          setError('inviteCode', { message: 'Please enter a valid 8-digit invite code' });
+          setError('inviteCode', { message: 'Please enter a valid 8-character invite code' });
           setIsLoading(false);
           return;
         }
@@ -373,6 +376,28 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
         linkedStudentId = studentRow.id;
         linkedMentorId = studentRow.mentor_id;
+      }
+
+      // For parent: validate parent link code
+      let parentLinkedStudentId: string | null = null;
+      if (data.role === 'parent') {
+        if (!data.parentLinkCode || data.parentLinkCode.trim().length !== 6) {
+          setError('parentLinkCode', { message: 'Please enter the 6-digit Parent Link Code from your child.' });
+          setIsLoading(false);
+          return;
+        }
+        const { data: studentRow, error: plcErr } = await supabase
+          .from('students')
+          .select('id, parent_link_code')
+          .eq('parent_link_code', data.parentLinkCode.trim())
+          .maybeSingle();
+
+        if (plcErr || !studentRow) {
+          setError('parentLinkCode', { message: 'Invalid Parent Link Code. Ask your child to generate one from their dashboard.' });
+          setIsLoading(false);
+          return;
+        }
+        parentLinkedStudentId = studentRow.id;
       }
 
       // For mentor with counselor invite code: validate it
@@ -399,7 +424,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
       // For mentor/student with school invite code: validate it
       let linkedSchoolId: string | null = null;
-      const schoolCodeRoles: UserRole[] = ['mentor', 'student_parent'];
+      const schoolCodeRoles: UserRole[] = ['mentor', 'student'];
       if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length === 6) {
         const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
           .from('school_invite_codes')
@@ -426,7 +451,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           ? Math.random().toString(36).substring(2, 10).toUpperCase()
           : null;
 
-      const roleValue = data.role === 'student_parent' ? 'student' : data.role;
+      // Map role value: 'student' maps to 'student' in DB
+      const roleValue = data.role;
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: data.email,
@@ -436,6 +462,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             full_name: data.fullName,
             role: roleValue,
             mentor_code: mentorCode,
+            linked_student_id: parentLinkedStudentId || null,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
@@ -447,8 +474,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         return;
       }
 
-      // If student/parent: link their user_id to the student row
-      if (data.role === 'student_parent' && linkedStudentId && authData.user) {
+      // If student: link their user_id to the student row
+      if (data.role === 'student' && linkedStudentId && authData.user) {
         await supabase
           .from('students')
           .update({
@@ -464,6 +491,14 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             mentor_id: linkedMentorId,
             student_id: linkedStudentId,
           })
+          .eq('id', authData.user.id);
+      }
+
+      // If parent: update user_profiles with linked_student_id
+      if (data.role === 'parent' && parentLinkedStudentId && authData.user) {
+        await supabase
+          .from('user_profiles')
+          .update({ linked_student_id: parentLinkedStudentId })
           .eq('id', authData.user.id);
       }
 
@@ -530,7 +565,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         <div className="grid grid-cols-2 gap-2">
           {[
             { value: 'mentor', label: 'Mentor', icon: 'AcademicCapIcon', desc: 'I guide students' },
-            { value: 'student_parent', label: 'Student / Parent', icon: 'UserGroupIcon', desc: 'I have an invite code' },
+            { value: 'student', label: 'Student', icon: 'UserIcon', desc: 'I have a mentor invite code' },
+            { value: 'parent', label: 'Parent', icon: 'HomeIcon', desc: 'I have a parent link code' },
             { value: 'counselor', label: 'Counselor', icon: 'ShieldCheckIcon', desc: 'I supervise mentors' },
             { value: 'school', label: 'School', icon: 'BuildingLibraryIcon', desc: 'Institutional account' },
           ].map((opt) => (
@@ -538,7 +574,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               key={opt.value}
               className={`flex flex-col gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all ${
                 selectedRole === opt.value
-                  ? 'border-primary bg-primary/5' :'border-border bg-secondary/40 hover:border-primary/40'
+                  ? 'border-primary bg-primary/5' : 'border-border bg-secondary/40 hover:border-primary/40'
               }`}
             >
               <input
@@ -639,8 +675,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         </div>
       </div>
 
-      {/* Invite Code — only for student/parent */}
-      {selectedRole === 'student_parent' && (
+      {/* Invite Code — only for student */}
+      {selectedRole === 'student' && (
         <div className="animate-fade-in">
           <label className="block text-sm font-600 text-foreground mb-1.5">
             Mentor Invite Code <span className="text-negative">*</span>
@@ -654,7 +690,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               placeholder="e.g. AB12CD34"
               maxLength={8}
               {...register('inviteCode', {
-                required: selectedRole === 'student_parent' ? 'Invite code is required' : false,
+                required: selectedRole === 'student' ? 'Invite code is required' : false,
                 minLength: { value: 8, message: 'Code must be 8 characters' },
                 maxLength: { value: 8, message: 'Code must be 8 characters' },
               })}
@@ -667,6 +703,38 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           </div>
           {errors.inviteCode && (
             <p className="text-xs text-negative mt-1">{errors.inviteCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Parent Link Code — only for parent */}
+      {selectedRole === 'parent' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Parent Link Code <span className="text-negative">*</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Enter the 6-digit code generated by your child from their Student Dashboard → Network &amp; Links.
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest"
+              placeholder="e.g. 123456"
+              maxLength={6}
+              {...register('parentLinkCode', {
+                required: selectedRole === 'parent' ? 'Parent Link Code is required' : false,
+                minLength: { value: 6, message: 'Code must be 6 digits' },
+                maxLength: { value: 6, message: 'Code must be 6 digits' },
+              })}
+            />
+            <Icon
+              name="HomeIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.parentLinkCode && (
+            <p className="text-xs text-negative mt-1">{errors.parentLinkCode.message}</p>
           )}
         </div>
       )}
@@ -706,7 +774,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       )}
 
       {/* School Invite Code — optional for mentors and students */}
-      {(selectedRole === 'mentor' || selectedRole === 'student_parent') && (
+      {(selectedRole === 'mentor' || selectedRole === 'student') && (
         <div className="animate-fade-in">
           <label className="block text-sm font-600 text-foreground mb-1.5">
             School Invite Code <span className="text-muted-foreground font-400">(optional)</span>

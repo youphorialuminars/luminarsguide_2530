@@ -93,6 +93,7 @@ export default function SchoolDashboardContent() {
   const [mentorSearch, setMentorSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [globalSearch, setGlobalSearch] = useState('');
+  const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
 
   const loadData = useCallback(async (uid: string) => {
     setIsLoading(true);
@@ -125,6 +126,19 @@ export default function SchoolDashboardContent() {
             .select('student_id, status')
             .in('student_id', studentIds);
           setAttendance(attData || []);
+
+          // Load parent engagement scores
+          const { data: obsData } = await supabase
+            .from('parent_observations')
+            .select('student_id, submitted_by')
+            .in('student_id', studentIds);
+
+          const scoreMap: Record<string, number> = {};
+          studentIds.forEach((id: string) => { scoreMap[id] = 0; });
+          (obsData || []).forEach((o: any) => {
+            if (scoreMap[o.student_id] !== undefined) scoreMap[o.student_id]++;
+          });
+          setParentEngagementScores(scoreMap);
         }
 
         // Load sessions
@@ -462,12 +476,16 @@ export default function SchoolDashboardContent() {
                     <th className="text-left text-xs font-600 text-muted-foreground px-5 py-3">Mentor</th>
                     <th className="text-left text-xs font-600 text-muted-foreground px-5 py-3">Avg Score</th>
                     <th className="text-left text-xs font-600 text-muted-foreground px-5 py-3">Sessions</th>
+                    <th className="text-left text-xs font-600 text-muted-foreground px-5 py-3">Parent Engagement</th>
                     <th className="text-right text-xs font-600 text-muted-foreground px-5 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredStudents.map((student, i) => {
                     const mentor = mentors.find((m) => m.id === student.mentor_id);
+                    const engScore = parentEngagementScores[student.id] || 0;
+                    const engLabel = engScore >= 5 ? 'High' : engScore >= 2 ? 'Medium' : 'Low';
+                    const engCls = engScore >= 5 ? 'bg-green-50 text-green-700 border-green-200' : engScore >= 2 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200';
                     return (
                       <tr key={student.id} className={`border-b border-border last:border-0 hover:bg-secondary/30 transition-colors ${i % 2 === 0 ? '' : 'bg-secondary/10'}`}>
                         <td className="px-5 py-3.5">
@@ -486,6 +504,11 @@ export default function SchoolDashboardContent() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-sm text-muted-foreground">{student.sessions || 0}</td>
+                        <td className="px-5 py-3.5">
+                          <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${engCls}`}>
+                            👨‍👩‍👧 {engLabel} ({engScore})
+                          </span>
+                        </td>
                         <td className="px-5 py-3.5 text-right">
                           <button
                             onClick={() => router.push(`/school-student-view?studentId=${student.id}&mentorId=${student.mentor_id}`)}

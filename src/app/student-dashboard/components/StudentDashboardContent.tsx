@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 
 type SortOption = 'name' | 'score' | 'sessions' | 'lastSession';
 type FilterOption = 'all' | 'up' | 'down' | 'stable';
-type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks' | 'calendar';
+type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks' | 'calendar' | 'parent-queries';
 
 // ─── DB Student type (from public.students) ───────────────────────────────────
 interface DbStudent {
@@ -90,6 +90,13 @@ interface LiveSession {
   jitsi_url: string;
   student_id: string;
   notes: string | null;
+}
+
+// ─── Parent Engagement Badge ──────────────────────────────────────────────────
+function ParentEngagementBadge({ score }: { score: number }) {
+  if (score >= 5) return <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">High</span>;
+  if (score >= 2) return <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Medium</span>;
+  return <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">Low</span>;
 }
 
 const AVATAR_COLORS = ['#7C6FCD', '#5BAD8F', '#D97BB6', '#5B8FD9', '#E8A020', '#C97B7B', '#7BA8C9', '#A594E8', '#8FBD8F', '#D9A05B'];
@@ -248,6 +255,24 @@ export default function StudentDashboardContent() {
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<MentorTab>('roster');
 
+  // Parent engagement scores per student (studentId -> score)
+  const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
+
+  // Parent queries
+  const [parentQueries, setParentQueries] = useState<{
+    id: string;
+    parent_id: string;
+    recipient_role: string;
+    message: string;
+    status: string;
+    reply: string | null;
+    created_at: string;
+  }[]>([]);
+  const [parentQueriesLoading, setParentQueriesLoading] = useState(false);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
+
   // Live Sessions state
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -326,6 +351,59 @@ export default function StudentDashboardContent() {
     return result;
   }, [students, search, filterTrend, sortBy]);
 
+  // ─── Load Parent Engagement Scores ────────────────────────────────────────
+  const loadParentEngagement = useCallback(async (studentIds: string[]) => {
+    if (studentIds.length === 0) return;
+    const { data: obsData } = await supabase
+      .from('parent_observations')
+      .select('student_id, submitted_by')
+      .in('student_id', studentIds);
+
+    const scoreMap: Record<string, Set<string>> = {};
+    studentIds.forEach((id) => { scoreMap[id] = new Set(); });
+    (obsData || []).forEach((o) => {
+      if (scoreMap[o.student_id]) scoreMap[o.student_id].add(o.submitted_by);
+    });
+
+    const scores: Record<string, number> = {};
+    Object.entries(scoreMap).forEach(([id, parents]) => {
+      scores[id] = parents.size;
+    });
+    setParentEngagementScores(scores);
+  }, [supabase]);
+
+  // ─── Load Parent Queries ───────────────────────────────────────────────────
+  const loadParentQueries = useCallback(async () => {
+    setParentQueriesLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setParentQueriesLoading(false); return; }
+    const { data } = await supabase
+      .from('parent_queries')
+      .select('*')
+      .eq('recipient_role', 'mentor')
+      .order('created_at', { ascending: false });
+    setParentQueries(data || []);
+    setParentQueriesLoading(false);
+  }, [supabase]);
+
+  const handleReplyToQuery = async (queryId: string) => {
+    if (!replyText.trim()) { toast.error('Please enter a reply.'); return; }
+    setSubmittingReply(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('parent_queries')
+      .update({ reply: replyText, status: 'replied', replied_by: user.id, replied_at: new Date().toISOString() })
+      .eq('id', queryId);
+    if (error) { toast.error('Failed to send reply.'); } else {
+      toast.success('Reply sent!');
+      setReplyingToId(null);
+      setReplyText('');
+      loadParentQueries();
+    }
+    setSubmittingReply(false);
+  };
+
   // ─── Load Students from Supabase ──────────────────────────────────────────
   const loadStudents = useCallback(async () => {
     setStudentsLoading(true);
@@ -353,8 +431,13 @@ export default function StudentDashboardContent() {
       setMentorCode(profileResult.data.mentor_code);
     }
 
+    // Load parent engagement scores for these students
+    if (rawStudents.length > 0) {
+      loadParentEngagement(rawStudents.map((s) => s.id));
+    }
+
     setStudentsLoading(false);
-  }, [supabase]);
+  }, [supabase, loadParentEngagement]);
 
   useEffect(() => {
     loadStudents();
@@ -496,7 +579,8 @@ export default function StudentDashboardContent() {
       loadLiveSessions();
       loadTasks();
     }
-  }, [activeTab, loadSurveys, loadTasks, loadReflections, loadLiveSessions]);
+    if (activeTab === 'parent-queries') loadParentQueries();
+  }, [activeTab, loadSurveys, loadTasks, loadReflections, loadLiveSessions, loadParentQueries]);
 
   // ─── Survey Handlers ───────────────────────────────────────────────────────
   const handleAddSurvey = async () => {
@@ -655,6 +739,7 @@ export default function StudentDashboardContent() {
     { id: 'reflections', label: 'Self-Reflection & Peer Ranking', icon: 'SparklesIcon' },
     { id: 'surveys', label: 'Manage Surveys', icon: 'ClipboardDocumentListIcon' },
     { id: 'tasks', label: 'Assign Tasks', icon: 'CheckCircleIcon' },
+    { id: 'parent-queries', label: 'Parent Queries', icon: 'ChatBubbleLeftRightIcon' },
   ];
 
   const getStudentName = (id: string) => dbStudents.find((s) => s.id === id)?.name || 'Unknown';
@@ -978,6 +1063,10 @@ export default function StudentDashboardContent() {
               {filtered.map((student) => (
                 <div key={student.id} className="relative group">
                   <StudentCard student={student} />
+                  {/* Parent Engagement Badge */}
+                  <div className="absolute top-2 left-2">
+                    <ParentEngagementBadge score={parentEngagementScores[student.id] || 0} />
+                  </div>
                   {/* Remove Student Button */}
                   <button
                     onClick={() => handleRemoveStudent(student.id, student.name)}
@@ -1330,6 +1419,101 @@ export default function StudentDashboardContent() {
                     >
                       <Icon name="TrashIcon" size={15} />
                     </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PARENT QUERIES TAB ────────────────────────────────────────────── */}
+      {activeTab === 'parent-queries' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="ChatBubbleLeftRightIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Parent Queries</h2>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {parentQueries.filter((q) => q.status === 'open').length} open
+              </span>
+            </div>
+            {parentQueriesLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : parentQueries.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground">
+                <Icon name="ChatBubbleLeftRightIcon" size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No parent queries yet.</p>
+                <p className="text-xs mt-1">When parents send you queries, they will appear here.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {parentQueries.map((query) => (
+                  <div key={query.id} className={`p-4 rounded-xl border ${
+                    query.status === 'open' ? 'bg-info/5 border-info/20' : 'bg-secondary/40 border-border'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Icon name="HomeIcon" size={14} className="text-primary" />
+                        <span className="text-xs font-600 text-muted-foreground">From Parent</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
+                          query.status === 'replied' ? 'bg-positive/10 text-positive border-positive/20'
+                            : query.status === 'closed' ? 'bg-muted text-muted-foreground border-border'
+                            : 'bg-info/10 text-info border-info/20'
+                        }`}>{query.status}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(query.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed mb-3">{query.message}</p>
+
+                    {query.reply && (
+                      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
+                        <p className="text-xs font-600 text-primary mb-1">Your Reply:</p>
+                        <p className="text-xs text-foreground/80">{query.reply}</p>
+                      </div>
+                    )}
+
+                    {query.status === 'open' && (
+                      replyingToId === query.id ? (
+                        <div className="flex flex-col gap-2">
+                          <textarea
+                            className="input-mystic min-h-[80px] resize-none text-sm"
+                            placeholder="Type your reply..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              className="btn-primary text-xs py-1.5 px-4"
+                              onClick={() => handleReplyToQuery(query.id)}
+                              disabled={submittingReply}
+                            >
+                              {submittingReply ? <><Icon name="ArrowPathIcon" size={12} className="animate-spin" /> Sending...</> : <><Icon name="PaperAirplaneIcon" size={12} /> Send Reply</>}
+                            </button>
+                            <button
+                              className="btn-ghost text-xs py-1.5 px-4"
+                              onClick={() => { setReplyingToId(null); setReplyText(''); }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn-ghost text-xs py-1.5 px-4"
+                          onClick={() => { setReplyingToId(query.id); setReplyText(''); }}
+                        >
+                          <Icon name="ChatBubbleLeftIcon" size={13} />
+                          Reply
+                        </button>
+                      )
+                    )}
                   </div>
                 ))}
               </div>

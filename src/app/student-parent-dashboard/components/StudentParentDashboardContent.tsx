@@ -411,7 +411,6 @@ export default function StudentParentDashboardContent() {
     { id: 'calendar', label: 'Calendar', icon: 'CalendarDaysIcon' },
     { id: 'report', label: 'Report Card', icon: 'DocumentTextIcon' },
     { id: 'feedback', label: 'Mentor Feedback', icon: 'StarIcon' },
-    { id: 'parent', label: 'Parent Hub', icon: 'UserGroupIcon' },
   ];
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

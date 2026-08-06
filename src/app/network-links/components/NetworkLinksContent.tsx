@@ -28,6 +28,70 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
   const [schoolCode, setSchoolCode] = useState('');
   const [submittingMentor, setSubmittingMentor] = useState(false);
   const [submittingSchool, setSubmittingSchool] = useState(false);
+  const [parentLinkCode, setParentLinkCode] = useState<string | null>(null);
+  const [generatingParentCode, setGeneratingParentCode] = useState(false);
+  const [copiedParentCode, setCopiedParentCode] = useState(false);
+
+  useEffect(() => {
+    // Load existing parent_link_code for this student
+    if (profile?.student_id) {
+      supabase
+        .from('students')
+        .select('parent_link_code')
+        .eq('id', profile.student_id)
+        .single()
+        .then(({ data }) => {
+          if (data?.parent_link_code) setParentLinkCode(data.parent_link_code);
+        });
+    }
+  }, [profile?.student_id, supabase]);
+
+  const handleGenerateParentCode = async () => {
+    if (!profile?.student_id) {
+      toast.error('No student profile linked. Please contact your mentor.');
+      return;
+    }
+    setGeneratingParentCode(true);
+    try {
+      // Check if code already exists
+      const { data: existing } = await supabase
+        .from('students')
+        .select('parent_link_code')
+        .eq('id', profile.student_id)
+        .single();
+
+      if (existing?.parent_link_code) {
+        setParentLinkCode(existing.parent_link_code);
+        toast.success('Your parent link code is shown below.');
+        setGeneratingParentCode(false);
+        return;
+      }
+
+      // Generate a new 6-digit code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const { error } = await supabase
+        .from('students')
+        .update({ parent_link_code: code })
+        .eq('id', profile.student_id);
+
+      if (error) {
+        toast.error('Failed to generate code: ' + error.message);
+      } else {
+        setParentLinkCode(code);
+        toast.success('Parent Link Code generated!');
+      }
+    } finally {
+      setGeneratingParentCode(false);
+    }
+  };
+
+  const handleCopyParentCode = () => {
+    if (!parentLinkCode) return;
+    navigator.clipboard?.writeText(parentLinkCode);
+    setCopiedParentCode(true);
+    setTimeout(() => setCopiedParentCode(false), 2000);
+    toast.success('Parent Link Code copied!');
+  };
 
   const handleLinkMentor = async () => {
     if (!mentorCode.trim()) return;
@@ -184,6 +248,57 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Parent Link Code Section */}
+      <div className="card-elevated p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center">
+            <Icon name="HomeIcon" size={18} className="text-violet-500" />
+          </div>
+          <div>
+            <h2 className="text-base font-700 text-foreground">Parent Link Code</h2>
+            <p className="text-xs text-muted-foreground">Share this code with your parent so they can link to your account.</p>
+          </div>
+        </div>
+
+        {parentLinkCode ? (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-violet-500/5 border border-violet-500/20">
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground mb-1">Your Parent Link Code</p>
+              <p className="text-2xl font-800 text-violet-600 font-mono tracking-widest">{parentLinkCode}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your parent enters this during sign-up under the "Parent" role.
+              </p>
+            </div>
+            <button
+              onClick={handleCopyParentCode}
+              className="btn-ghost text-xs flex-shrink-0"
+            >
+              <Icon name={copiedParentCode ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} className={copiedParentCode ? 'text-positive' : ''} />
+              {copiedParentCode ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="p-4 rounded-xl bg-secondary/60 border border-border text-center">
+              <Icon name="HomeIcon" size={28} className="mx-auto mb-2 text-muted-foreground opacity-40" />
+              <p className="text-sm text-muted-foreground">No parent link code generated yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">Generate one to allow your parent to link their account.</p>
+            </div>
+            <button
+              className="btn-primary self-start"
+              onClick={handleGenerateParentCode}
+              disabled={generatingParentCode}
+            >
+              {generatingParentCode ? (
+                <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Generating...</>
+              ) : (
+                <><Icon name="KeyIcon" size={15} /> Generate Parent Code</>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
