@@ -9,7 +9,6 @@ import DashboardStatsStrip from './DashboardStatsStrip';
 import AddStudentModal from './AddStudentModal';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { Toaster } from 'sonner';
 
 type SortOption = 'name' | 'score' | 'sessions' | 'lastSession';
 type FilterOption = 'all' | 'up' | 'down' | 'stable';
@@ -475,7 +474,6 @@ export default function StudentDashboardContent() {
 
   return (
     <div className="animate-fade-in">
-      <Toaster position="top-right" />
 
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
