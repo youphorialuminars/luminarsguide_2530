@@ -307,6 +307,7 @@ export default function CounselorDashboardContent() {
   const [generatingReportFor, setGeneratingReportFor] = useState<string | null>(null);
   const [reports, setReports] = useState<Record<string, string>>({});
   const [generatingCode, setGeneratingCode] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -368,6 +369,19 @@ export default function CounselorDashboardContent() {
   }, [supabase, router]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── Filtered data based on globalSearch ─────────────────────────────────
+  const filteredMentors = mentors.filter((m) =>
+    !globalSearch.trim() ||
+    m.full_name.toLowerCase().includes(globalSearch.toLowerCase()) ||
+    m.email.toLowerCase().includes(globalSearch.toLowerCase())
+  );
+
+  const filteredStudents = students.filter((s) =>
+    !globalSearch.trim() ||
+    s.name.toLowerCase().includes(globalSearch.toLowerCase()) ||
+    s.grade?.toLowerCase().includes(globalSearch.toLowerCase())
+  );
 
   const handleGenerateCode = async () => {
     if (!counselorProfile) return;
@@ -514,17 +528,37 @@ Please synthesize this data into a qualitative performance report covering: (1) 
             Welcome, {counselorProfile?.full_name} — supervising {mentors.length} mentor{mentors.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={handleGenerateCode}
-          disabled={generatingCode}
-          className="btn-primary"
-        >
-          {generatingCode ? (
-            <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Generating...</>
-          ) : (
-            <><Icon name="KeyIcon" size={16} /> Generate Counselor Code</>
-          )}
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Global Search Bar */}
+          <div className="relative">
+            <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              className="input-mystic pl-9 w-52"
+              placeholder="Search mentors & students…"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+            />
+            {globalSearch && (
+              <button
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setGlobalSearch('')}
+              >
+                <Icon name="XMarkIcon" size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleGenerateCode}
+            disabled={generatingCode}
+            className="btn-primary"
+          >
+            {generatingCode ? (
+              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Generating...</>
+            ) : (
+              <><Icon name="KeyIcon" size={16} /> Generate Counselor Code</>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -592,13 +626,15 @@ Please synthesize this data into a qualitative performance report covering: (1) 
       {/* Mentors Tab */}
       {activeTab === 'mentors' && (
         <div className="flex flex-col gap-4 animate-fade-in">
-          {mentors.length === 0 ? (
+          {filteredMentors.length === 0 ? (
             <div className="bg-card border border-border rounded-2xl p-10 text-center">
               <Icon name="AcademicCapIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">No mentors linked yet. Share your counselor code with mentors.</p>
+              <p className="text-muted-foreground">
+                {globalSearch ? `No mentors match "${globalSearch}".` : 'No mentors linked yet. Share your counselor code with mentors.'}
+              </p>
             </div>
           ) : (
-            mentors.map((mentor) => (
+            filteredMentors.map((mentor) => (
               <MentorAnalyticsCard
                 key={mentor.id}
                 mentor={mentor}
@@ -622,14 +658,16 @@ Please synthesize this data into a qualitative performance report covering: (1) 
           <p className="text-sm text-muted-foreground">
             Read-only view of all students under your linked mentors. Click a student to view their full dashboard.
           </p>
-          {students.length === 0 ? (
+          {filteredStudents.length === 0 ? (
             <div className="bg-card border border-border rounded-2xl p-10 text-center">
               <Icon name="UserGroupIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">No students found under your linked mentors.</p>
+              <p className="text-muted-foreground">
+                {globalSearch ? `No students match "${globalSearch}".` : 'No students found under your linked mentors.'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {students.map((student) => {
+              {filteredStudents.map((student) => {
                 const mentor = mentors.find((m) => m.id === student.mentor_id);
                 const studentSessions = sessions.filter((s) => s.student_id === student.id).length;
                 const studentAtt = attendance.filter((a) => a.student_id === student.id);

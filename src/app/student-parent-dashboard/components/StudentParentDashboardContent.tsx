@@ -215,6 +215,7 @@ export default function StudentParentDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback' | 'parent'>('overview');
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [globalSearch, setGlobalSearch] = useState('');
 
   // Reflection form state
   const [reflectionForm, setReflectionForm] = useState({ learned_this_week: '', needs_work: '', team_dynamics: '', peer_appreciation: '' });
@@ -431,14 +432,34 @@ export default function StudentParentDashboardContent() {
             {studentProfile ? `Linked to: ${studentProfile.name}` : 'Your personal learning dashboard'}
           </p>
         </div>
-        <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border-2 shadow-lg ${tier.bgColor} ${tier.glowClass}`}>
-          <span className="text-2xl">{tier.icon}</span>
-          <div>
-            <p className="text-xs text-muted-foreground font-500">Quest Tier</p>
-            <p className={`text-base font-800 ${tier.textColor}`}>{tier.name}</p>
+        <div className="flex items-center gap-3">
+          {/* Global Search Bar */}
+          <div className="relative">
+            <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              className="input-mystic pl-9 w-48"
+              placeholder="Search tasks…"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+            />
+            {globalSearch && (
+              <button
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setGlobalSearch('')}
+              >
+                <Icon name="XMarkIcon" size={14} />
+              </button>
+            )}
           </div>
-          <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${tier.color} flex items-center justify-center text-white text-xs font-700 shadow-md`}>
-            {completedTasks}
+          <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border-2 shadow-lg ${tier.bgColor} ${tier.glowClass}`}>
+            <span className="text-2xl">{tier.icon}</span>
+            <div>
+              <p className="text-xs text-muted-foreground font-500">Quest Tier</p>
+              <p className={`text-base font-800 ${tier.textColor}`}>{tier.name}</p>
+            </div>
+            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${tier.color} flex items-center justify-center text-white text-xs font-700 shadow-md`}>
+              {completedTasks}
+            </div>
           </div>
         </div>
       </div>
@@ -561,7 +582,12 @@ export default function StudentParentDashboardContent() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {tasks.map((task) => (
+                {tasks
+                  .filter((task) =>
+                    !globalSearch.trim() ||
+                    task.task_description.toLowerCase().includes(globalSearch.toLowerCase())
+                  )
+                  .map((task) => (
                   <div
                     key={task.id}
                     className={`p-4 rounded-xl border transition-all ${
@@ -616,6 +642,12 @@ export default function StudentParentDashboardContent() {
                     </div>
                   </div>
                 ))}
+                {globalSearch.trim() && tasks.filter((t) => t.task_description.toLowerCase().includes(globalSearch.toLowerCase())).length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Icon name="MagnifyingGlassIcon" size={28} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No tasks match &quot;{globalSearch}&quot;</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -2,8 +2,8 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { mockStudents, mockSessions } from '@/lib/mockData';
-import type { Student, Gender } from '@/lib/mockData';
+import type { Gender } from '@/lib/mockData';
+import { mockSessions } from '@/lib/mockData';
 import StudentCard from './StudentCard';
 import DashboardStatsStrip from './DashboardStatsStrip';
 import AddStudentModal from './AddStudentModal';
@@ -13,6 +13,43 @@ import { toast } from 'sonner';
 type SortOption = 'name' | 'score' | 'sessions' | 'lastSession';
 type FilterOption = 'all' | 'up' | 'down' | 'stable';
 type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks' | 'calendar';
+
+// ─── DB Student type (from public.students) ───────────────────────────────────
+interface DbStudent {
+  id: string;
+  name: string;
+  grade: string;
+  age: number | null;
+  gender: string | null;
+  mentor_id: string;
+  avg_score: number;
+  sessions: number;
+  topics: string[];
+  trend: string;
+  alert_level: string | null;
+  last_session: string | null;
+  notes: string | null;
+  avatar: string;
+}
+
+// ─── UI Student shape (mapped from DbStudent) ─────────────────────────────────
+interface UiStudent {
+  id: string;
+  name: string;
+  grade: string;
+  age?: number;
+  gender?: Gender;
+  mentorId: string;
+  avatarColor: string;
+  avatarInitials: string;
+  enrolledDate: string;
+  lastSessionDate: string;
+  sessionCount: number;
+  averageScore: number;
+  scoreTrend: 'up' | 'down' | 'stable';
+  primaryTopics: string[];
+  notes: string;
+}
 
 interface Survey {
   id: string;
@@ -53,6 +90,30 @@ interface LiveSession {
   jitsi_url: string;
   student_id: string;
   notes: string | null;
+}
+
+const AVATAR_COLORS = ['#7C6FCD', '#5BAD8F', '#D97BB6', '#5B8FD9', '#E8A020', '#C97B7B', '#7BA8C9', '#A594E8', '#8FBD8F', '#D9A05B'];
+
+function mapDbStudentToUi(s: DbStudent, index: number): UiStudent {
+  const nameParts = s.name.split(' ');
+  const initials = nameParts.slice(0, 2).map((n) => n[0]).join('').toUpperCase();
+  return {
+    id: s.id,
+    name: s.name,
+    grade: s.grade || '',
+    age: s.age ?? undefined,
+    gender: (s.gender as Gender) || undefined,
+    mentorId: s.mentor_id,
+    avatarColor: AVATAR_COLORS[index % AVATAR_COLORS.length],
+    avatarInitials: initials,
+    enrolledDate: '',
+    lastSessionDate: s.last_session || '—',
+    sessionCount: s.sessions || 0,
+    averageScore: s.avg_score || 0,
+    scoreTrend: (s.trend as 'up' | 'down' | 'stable') || 'stable',
+    primaryTopics: s.topics || [],
+    notes: s.notes || '',
+  };
 }
 
 // ─── Performance Score Calculator ────────────────────────────────────────────
@@ -100,13 +161,91 @@ function PriorityBadge({ priority }: { priority: number }) {
   );
 }
 
+// ─── Needs Attention Modal ────────────────────────────────────────────────────
+function NeedsAttentionModal({
+  students,
+  onClose,
+}: {
+  students: UiStudent[];
+  onClose: () => void;
+}) {
+  const atRisk = students.filter((s) => s.scoreTrend === 'down' || s.averageScore < 65);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-warning/10 flex items-center justify-center">
+              <Icon name="ExclamationTriangleIcon" size={18} className="text-warning" />
+            </div>
+            <div>
+              <h2 className="font-700 text-foreground text-base">Students Needing Attention</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Declining trend or score below 65</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          >
+            <Icon name="XMarkIcon" size={18} />
+          </button>
+        </div>
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {atRisk.length === 0 ? (
+            <div className="text-center py-10">
+              <Icon name="CheckCircleIcon" size={36} className="text-positive mx-auto mb-3 opacity-60" />
+              <p className="font-600 text-foreground">All students are on track!</p>
+              <p className="text-sm text-muted-foreground mt-1">No students currently need attention.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {atRisk.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl bg-warning/5 border border-warning/20">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-700 flex-shrink-0"
+                    style={{ backgroundColor: s.avatarColor }}
+                  >
+                    {s.avatarInitials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-700 text-foreground">{s.name}</p>
+                    <p className="text-xs text-muted-foreground">{s.grade}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-sm font-700 text-foreground">{s.averageScore}%</span>
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full ${
+                      s.scoreTrend === 'down'
+                        ? 'bg-negative/10 text-negative' :'bg-warning/10 text-warning'
+                    }`}>
+                      {s.scoreTrend === 'down' ? '↓ Declining' : 'Low Score'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-border">
+          <button onClick={onClose} className="btn-ghost w-full">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StudentDashboardContent() {
   const supabase = createClient();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [filterTrend, setFilterTrend] = useState<FilterOption>('all');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [students, setStudents] = useState<Student[]>(mockStudents);
+  const [showAttentionModal, setShowAttentionModal] = useState(false);
+  const [students, setStudents] = useState<UiStudent[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [mentorCode, setMentorCode] = useState<string | null>(null);
+  const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<MentorTab>('roster');
 
   // Live Sessions state
@@ -153,6 +292,7 @@ export default function StudentDashboardContent() {
   }, []);
 
   const avgScore = useMemo(() => {
+    if (students.length === 0) return 0;
     const total = students.reduce((sum, s) => sum + s.averageScore, 0);
     return Math.round(total / students.length);
   }, [students]);
@@ -186,24 +326,76 @@ export default function StudentDashboardContent() {
     return result;
   }, [students, search, filterTrend, sortBy]);
 
+  // ─── Load Students from Supabase ──────────────────────────────────────────
+  const loadStudents = useCallback(async () => {
+    setStudentsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setStudentsLoading(false); return; }
+
+    const [studentsResult, profileResult] = await Promise.all([
+      supabase
+        .from('students')
+        .select('id, name, grade, age, gender, mentor_id, avg_score, sessions, topics, trend, alert_level, last_session, notes, avatar')
+        .eq('mentor_id', user.id)
+        .order('name', { ascending: true }),
+      supabase
+        .from('user_profiles')
+        .select('mentor_code')
+        .eq('id', user.id)
+        .single(),
+    ]);
+
+    const rawStudents: DbStudent[] = studentsResult.data || [];
+    setStudents(rawStudents.map((s, i) => mapDbStudentToUi(s, i)));
+    setDbStudents(rawStudents.map((s) => ({ id: s.id, name: s.name })));
+
+    if (profileResult.data?.mentor_code) {
+      setMentorCode(profileResult.data.mentor_code);
+    }
+
+    setStudentsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadStudents();
+  }, [loadStudents]);
+
+  // ─── Remove Student (set mentor_id to null) ───────────────────────────────
+  const handleRemoveStudent = async (studentId: string, studentName: string) => {
+    if (!confirm(`Remove ${studentName} from your roster? They will be unlinked but their data will be preserved.`)) return;
+    setRemovingStudentId(studentId);
+    const { error } = await supabase
+      .from('students')
+      .update({ mentor_id: null })
+      .eq('id', studentId);
+    if (error) {
+      toast.error('Failed to remove student: ' + error.message);
+    } else {
+      toast.success(`${studentName} removed from your roster.`);
+      setStudents((prev) => prev.filter((s) => s.id !== studentId));
+      setDbStudents((prev) => prev.filter((s) => s.id !== studentId));
+    }
+    setRemovingStudentId(null);
+  };
+
   const handleAddStudent = (data: { name: string; grade: string; age: string; gender: Gender | ''; notes: string }) => {
+    // This modal adds locally; for full DB integration the AddStudentModal would insert to Supabase
     const initials = data.name
       .split(' ')
       .slice(0, 2)
       .map((n) => n[0])
       .join('')
       .toUpperCase();
-    const colors = ['#7C6FCD', '#5BAD8F', '#D97BB6', '#5B8FD9', '#E8A020', '#C97B7B'];
-    const newStudent: Student = {
+    const newStudent: UiStudent = {
       id: `student-${Date.now()}`,
       name: data.name,
       grade: data.grade,
       age: data.age ? parseInt(data.age) : undefined,
       gender: (data.gender as Gender) || undefined,
       mentorId: 'mentor-101',
-      avatarColor: colors[students.length % colors.length],
+      avatarColor: AVATAR_COLORS[students.length % AVATAR_COLORS.length],
       avatarInitials: initials,
-      enrolledDate: '2026-08-05',
+      enrolledDate: new Date().toISOString().split('T')[0],
       lastSessionDate: '—',
       sessionCount: 0,
       averageScore: 0,
@@ -265,14 +457,12 @@ export default function StudentDashboardContent() {
 
     setReflections(reflData || []);
 
-    // Avg feedback score for this mentor
     if (feedbackData && feedbackData.length > 0) {
       const total = feedbackData.reduce((s: number, f: any) =>
         s + (f.mentor_interaction_score + f.active_listening_score + f.teaching_clarity_score) / 3, 0);
       setAvgFeedbackScore(total / feedbackData.length);
     }
 
-    // Peer stats: average impact_score across all mentors
     if (allReflData && allReflData.length > 0) {
       const globalAvg = allReflData.reduce((s: number, r: any) => s + r.impact_score, 0) / allReflData.length;
       const myAvg = reflData && reflData.length > 0
@@ -304,7 +494,7 @@ export default function StudentDashboardContent() {
     if (activeTab === 'reflections') loadReflections();
     if (activeTab === 'calendar') {
       loadLiveSessions();
-      loadTasks(); // to get dbStudents
+      loadTasks();
     }
   }, [activeTab, loadSurveys, loadTasks, loadReflections, loadLiveSessions]);
 
@@ -416,7 +606,6 @@ export default function StudentDashboardContent() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSchedulingSession(false); return; }
 
-    // Auto-generate unique Jitsi room ID
     const roomId = `luminar-${user.id.slice(0, 8)}-${Date.now()}`;
     const jitsiUrl = `https://meet.jit.si/${roomId}`;
 
@@ -491,12 +680,13 @@ export default function StudentDashboardContent() {
         )}
       </div>
 
-      {/* Stats Strip */}
+      {/* Stats Strip — Needs Attention card is now clickable */}
       <DashboardStatsStrip
         totalStudents={students.length}
         sessionsThisWeek={sessionsThisWeek}
         averageScore={avgScore}
         studentsNeedingAttention={needAttention}
+        onNeedsAttentionClick={() => setShowAttentionModal(true)}
       />
 
       {/* Tab Navigation */}
@@ -674,6 +864,37 @@ export default function StudentDashboardContent() {
       {/* ── ROSTER TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'roster' && (
         <>
+          {/* Invite Code Banner */}
+          {mentorCode && (
+            <div className="mb-5 p-4 rounded-xl bg-primary/5 border border-primary/20 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+                  <Icon name="KeyIcon" size={18} className="text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Your Mentor Invite Code</p>
+                  <p className="text-lg font-800 text-primary tracking-widest font-mono">{mentorCode}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 sm:max-w-xs">
+                <Icon name="InformationCircleIcon" size={14} className="text-primary flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Give this code to students for them to link to your roster upon sign-up.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(mentorCode);
+                  toast.success('Invite code copied!');
+                }}
+                className="btn-ghost text-xs flex-shrink-0"
+              >
+                <Icon name="ClipboardDocumentIcon" size={14} />
+                Copy
+              </button>
+            </div>
+          )}
+
           {/* Search + Filter + Sort */}
           <div className="flex flex-col sm:flex-row gap-3 mb-5">
             <div className="relative flex-1">
@@ -726,23 +947,52 @@ export default function StudentDashboardContent() {
             )}
           </div>
 
-          {filtered.length === 0 ? (
+          {studentsLoading ? (
+            <div className="flex justify-center py-16">
+              <div className="animate-spin w-8 h-8 rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="card-elevated flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
                 <Icon name="UserGroupIcon" size={28} className="text-muted-foreground" />
               </div>
-              <h3 className="font-700 text-foreground text-lg mb-2">No students found</h3>
+              <h3 className="font-700 text-foreground text-lg mb-2">
+                {students.length === 0 ? 'No students linked yet' : 'No students found'}
+              </h3>
               <p className="text-sm text-muted-foreground max-w-xs mb-5">
-                {search ? `No students match "${search}".` : 'No students match the current filter.'}
+                {students.length === 0
+                  ? 'Share your invite code above with students so they can link to your roster upon sign-up.'
+                  : search
+                  ? `No students match "${search}".`
+                  : 'No students match the current filter.'}
               </p>
-              <button className="btn-primary" onClick={() => setShowAddModal(true)}>
-                <Icon name="UserPlusIcon" size={16} /> Add First Student
-              </button>
+              {students.length === 0 && mentorCode && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20">
+                  <Icon name="KeyIcon" size={16} className="text-primary" />
+                  <span className="text-sm font-700 text-primary font-mono tracking-widest">{mentorCode}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filtered.map((student) => (
-                <StudentCard key={student.id} student={student} />
+                <div key={student.id} className="relative group">
+                  <StudentCard student={student} />
+                  {/* Remove Student Button */}
+                  <button
+                    onClick={() => handleRemoveStudent(student.id, student.name)}
+                    disabled={removingStudentId === student.id}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-negative/90 hover:bg-negative text-white text-xs font-600 shadow-md"
+                    title={`Remove ${student.name} from roster`}
+                  >
+                    {removingStudentId === student.id ? (
+                      <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                    ) : (
+                      <Icon name="UserMinusIcon" size={12} />
+                    )}
+                    Remove
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -896,7 +1146,6 @@ export default function StudentDashboardContent() {
       {/* ── MANAGE SURVEYS TAB ────────────────────────────────────────────── */}
       {activeTab === 'surveys' && (
         <div className="flex flex-col gap-6">
-          {/* Add Survey Form */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
               <Icon name="PlusCircleIcon" size={18} className="text-primary" />
@@ -931,7 +1180,6 @@ export default function StudentDashboardContent() {
             </div>
           </div>
 
-          {/* Active Surveys List */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
               <Icon name="ClipboardDocumentListIcon" size={18} className="text-primary" />
@@ -958,20 +1206,10 @@ export default function StudentDashboardContent() {
                       <p className="text-sm font-600 text-foreground truncate">{survey.title}</p>
                       <p className="text-xs text-muted-foreground truncate">{survey.url}</p>
                     </div>
-                    <a
-                      href={survey.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-ghost text-xs py-1.5 px-2.5 flex-shrink-0"
-                      title="Preview"
-                    >
+                    <a href={survey.url} target="_blank" rel="noopener noreferrer" className="btn-ghost text-xs py-1.5 px-2.5 flex-shrink-0" title="Preview">
                       <Icon name="ArrowTopRightOnSquareIcon" size={14} />
                     </a>
-                    <button
-                      onClick={() => handleDeleteSurvey(survey.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
-                      title="Delete survey"
-                    >
+                    <button onClick={() => handleDeleteSurvey(survey.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0" title="Delete survey">
                       <Icon name="TrashIcon" size={15} />
                     </button>
                   </div>
@@ -985,7 +1223,6 @@ export default function StudentDashboardContent() {
       {/* ── ASSIGN TASKS TAB ──────────────────────────────────────────────── */}
       {activeTab === 'tasks' && (
         <div className="flex flex-col gap-6">
-          {/* Assign Task Form */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
               <Icon name="PlusCircleIcon" size={18} className="text-primary" />
@@ -1050,7 +1287,6 @@ export default function StudentDashboardContent() {
             </div>
           </div>
 
-          {/* Tasks List */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
               <Icon name="ClipboardDocumentListIcon" size={18} className="text-primary" />
@@ -1076,7 +1312,7 @@ export default function StudentDashboardContent() {
                         <PriorityBadge priority={task.priority_rating} />
                         <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
                           task.status === 'Completed' ? 'bg-positive/10 text-positive border-positive/20'
-                            : task.status === 'In Progress'? 'bg-info/10 text-info border-info/20' :'bg-muted text-muted-foreground border-border'
+                            : task.status === 'In Progress' ? 'bg-info/10 text-info border-info/20' : 'bg-muted text-muted-foreground border-border'
                         }`}>{task.status}</span>
                       </div>
                       <p className="text-sm text-foreground/80 leading-relaxed">{task.task_description}</p>
@@ -1105,6 +1341,14 @@ export default function StudentDashboardContent() {
       {/* Add Student Modal */}
       {showAddModal && (
         <AddStudentModal onClose={() => setShowAddModal(false)} onAdd={handleAddStudent} />
+      )}
+
+      {/* Needs Attention Modal */}
+      {showAttentionModal && (
+        <NeedsAttentionModal
+          students={students}
+          onClose={() => setShowAttentionModal(false)}
+        />
       )}
     </div>
   );

@@ -92,6 +92,7 @@ export default function SchoolDashboardContent() {
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [mentorSearch, setMentorSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
 
   const loadData = useCallback(async (uid: string) => {
     setIsLoading(true);
@@ -282,6 +283,28 @@ export default function SchoolDashboardContent() {
           <p className="text-sm text-muted-foreground ml-13">
             School Dashboard · {mentors.length} Mentors · {students.length} Students
           </p>
+        </div>
+        {/* Global Search Bar */}
+        <div className="relative">
+          <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <input
+            className="input-mystic pl-9 w-56"
+            placeholder="Search mentors & students…"
+            value={globalSearch}
+            onChange={(e) => {
+              setGlobalSearch(e.target.value);
+              setMentorSearch(e.target.value);
+              setStudentSearch(e.target.value);
+            }}
+          />
+          {globalSearch && (
+            <button
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => { setGlobalSearch(''); setMentorSearch(''); setStudentSearch(''); }}
+            >
+              <Icon name="XMarkIcon" size={14} />
+            </button>
+          )}
         </div>
       </div>
 

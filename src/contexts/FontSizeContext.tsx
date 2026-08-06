@@ -45,16 +45,30 @@ const FONT_SIZE_VARS: Record<FontSize, { base: string; sm: string; xs: string; l
   },
 };
 
+// Root font size multiplier so rem-based Tailwind classes scale too
+const ROOT_FONT_SIZE: Record<FontSize, string> = {
+  small: '14px',
+  medium: '15px',
+  large: '17px',
+};
+
 function applyFontSize(size: FontSize) {
   const vars = FONT_SIZE_VARS[size];
   const root = document.documentElement;
+  // Apply CSS custom properties for explicit var() usage
   root.style.setProperty('--fs-base', vars.base);
   root.style.setProperty('--fs-sm', vars.sm);
   root.style.setProperty('--fs-xs', vars.xs);
   root.style.setProperty('--fs-lg', vars.lg);
   root.style.setProperty('--fs-xl', vars.xl);
   root.style.setProperty('--fs-2xl', vars['2xl']);
+  // Apply data attribute for CSS selectors
   root.setAttribute('data-font-size', size);
+  // Apply root font-size so all rem-based Tailwind classes scale globally
+  root.style.fontSize = ROOT_FONT_SIZE[size];
+  // Remove old size classes and add new one to body
+  document.body.classList.remove('font-size-small', 'font-size-medium', 'font-size-large');
+  document.body.classList.add(`font-size-${size}`);
 }
 
 export function FontSizeProvider({ children }: { children: React.ReactNode }) {
