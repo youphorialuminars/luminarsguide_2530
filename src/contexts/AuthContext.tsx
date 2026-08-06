@@ -112,18 +112,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const siteUrl =
       process.env.NEXT_PUBLIC_SITE_URL ||
       (typeof window !== 'undefined' ? window.location.origin : '');
+
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      console.error('[AuthContext] NEXT_PUBLIC_SUPABASE_URL is not set. Sign-up will fail.');
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('[AuthContext] NEXT_PUBLIC_SUPABASE_ANON_KEY is not set. Sign-up will fail.');
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          full_name: (metadata as any)?.fullName || '',
-          avatar_url: (metadata as any)?.avatarUrl || ''
+          full_name: (metadata as any)?.full_name || (metadata as any)?.fullName || '',
+          role: (metadata as any)?.role || 'mentor',
+          mentor_code: (metadata as any)?.mentor_code || null,
+          avatar_url: (metadata as any)?.avatarUrl || '',
         },
         emailRedirectTo: `${siteUrl}/auth/callback`
       }
     });
-    if (error) throw error;
+    if (error) {
+      console.error('[AuthContext] auth.signUp error:', error);
+      throw error;
+    }
     return data;
   };
 

@@ -462,70 +462,105 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             full_name: data.fullName,
             role: roleValue,
             mentor_code: mentorCode,
+            // Pass all linking IDs in metadata so the DB trigger (SECURITY DEFINER)
+            // can write them to user_profiles atomically — bypassing RLS session issues.
+            mentor_id: linkedMentorId || null,
+            student_id: linkedStudentId || null,
             linked_student_id: parentLinkedStudentId || null,
+            counselor_id: linkedCounselorId || null,
+            school_id: linkedSchoolId || null,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
       if (signUpError) {
+        console.error('[SignUp] auth.signUp error:', signUpError);
         setError('email', { message: signUpError.message });
         setIsLoading(false);
         return;
       }
 
+      if (!authData.user) {
+        setError('email', { message: 'Sign up failed: no user returned. Please try again.' });
+        setIsLoading(false);
+        return;
+      }
+
+      // UPSERT the profile row — handles both cases:
+      // 1. DB trigger already created the row → UPDATE with full data
+      // 2. No trigger or trigger hasn't fired yet → INSERT the row
+      const profileUpsert: Record<string, any> = {
+        id: authData.user.id,
+        email: data.email,
+        full_name: data.fullName,
+        role: roleValue,
+        mentor_code: mentorCode,
+        mentor_id: linkedMentorId || null,
+        student_id: linkedStudentId || null,
+        linked_student_id: parentLinkedStudentId || null,
+        counselor_id: linkedCounselorId || null,
+        school_id: linkedSchoolId || null,
+      };
+
+      const { error: profileUpsertError } = await supabase
+        .from('user_profiles')
+        .upsert(profileUpsert, { onConflict: 'id' });
+
+      if (profileUpsertError) {
+        console.error('[SignUp] user_profiles UPSERT error:', profileUpsertError);
+        // Surface actionable error to the user
+        if (profileUpsertError.code === '42501') {
+          setError('email', {
+            message: 'Permission denied writing your profile. Please contact support (RLS policy error).',
+          });
+        } else if (profileUpsertError.code === '23505') {
+          setError('email', {
+            message: 'An account with this email already exists. Please sign in instead.',
+          });
+        } else {
+          setError('email', {
+            message: `Profile creation failed: ${profileUpsertError.message}`,
+          });
+        }
+        setIsLoading(false);
+        return;
+      }
+
       // If student: link their user_id to the student row
-      if (data.role === 'student' && linkedStudentId && authData.user) {
-        await supabase
+      if (data.role === 'student' && linkedStudentId) {
+        const { error: studentLinkErr } = await supabase
           .from('students')
           .update({
             student_user_id: authData.user.id,
             invite_used: true,
           })
           .eq('id', linkedStudentId);
-
-        // Also update user_profiles with mentor_id and student_id
-        await supabase
-          .from('user_profiles')
-          .update({
-            mentor_id: linkedMentorId,
-            student_id: linkedStudentId,
-          })
-          .eq('id', authData.user.id);
+        if (studentLinkErr) {
+          console.error('[SignUp] students link error:', studentLinkErr);
+        }
       }
 
-      // If parent: update user_profiles with linked_student_id
-      if (data.role === 'parent' && parentLinkedStudentId && authData.user) {
-        await supabase
-          .from('user_profiles')
-          .update({ linked_student_id: parentLinkedStudentId })
-          .eq('id', authData.user.id);
-      }
-
-      // If mentor with counselor code: link to counselor
-      if (data.role === 'mentor' && linkedCounselorId && authData.user) {
-        await supabase
-          .from('user_profiles')
-          .update({ counselor_id: linkedCounselorId })
-          .eq('id', authData.user.id);
-
-        await supabase
+      // If mentor with counselor code: mark invite as used
+      if (data.role === 'mentor' && linkedCounselorId && data.counselorInviteCode) {
+        const { error: cmiErr } = await supabase
           .from('counselor_mentor_invites')
           .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
           .eq('invite_code', data.counselorInviteCode.trim());
+        if (cmiErr) {
+          console.error('[SignUp] counselor_mentor_invites update error:', cmiErr);
+        }
       }
 
-      // If mentor or student with school code: link to school
-      if (linkedSchoolId && authData.user) {
-        await supabase
-          .from('user_profiles')
-          .update({ school_id: linkedSchoolId })
-          .eq('id', authData.user.id);
-
-        await supabase
+      // If mentor or student with school code: mark invite as used
+      if (linkedSchoolId && data.schoolInviteCode) {
+        const { error: sciErr } = await supabase
           .from('school_invite_codes')
           .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
           .eq('invite_code', data.schoolInviteCode.trim());
+        if (sciErr) {
+          console.error('[SignUp] school_invite_codes update error:', sciErr);
+        }
       }
 
       setIsLoading(false);
