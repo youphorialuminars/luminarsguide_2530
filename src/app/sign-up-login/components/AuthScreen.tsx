@@ -53,6 +53,120 @@ const DEMO_CREDENTIALS = [
   },
 ];
 
+// ─── Visible Error Banner ──────────────────────────────────────────────────────
+interface SupabaseErrorBannerProps {
+  message: string;
+  code?: string;
+  onDismiss: () => void;
+}
+
+function SupabaseErrorBanner({ message, code, onDismiss }: SupabaseErrorBannerProps) {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border-2 border-red-500/50 text-red-400 animate-fade-in">
+      <Icon name="ExclamationTriangleIcon" size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-700 text-red-400 mb-0.5">
+          {code ? `Supabase Error ${code}` : 'Supabase Error'}
+        </p>
+        <p className="text-xs text-red-300 break-words leading-relaxed">{message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex-shrink-0 text-red-400/60 hover:text-red-400 transition-colors"
+      >
+        <Icon name="XMarkIcon" size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ─── System Health Check ───────────────────────────────────────────────────────
+function SystemHealthCheck() {
+  const [status, setStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
+  const [detail, setDetail] = useState<string>('');
+
+  const runCheck = async () => {
+    setStatus('checking');
+    setDetail('');
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl) {
+      setStatus('error');
+      setDetail('NEXT_PUBLIC_SUPABASE_URL is undefined. The environment variable is not set.');
+      return;
+    }
+    if (!supabaseKey) {
+      setStatus('error');
+      setDetail('NEXT_PUBLIC_SUPABASE_ANON_KEY is undefined. The environment variable is not set.');
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .limit(1);
+
+      if (error) {
+        setStatus('error');
+        setDetail(`Code: ${error.code || 'N/A'} | Message: ${error.message} | Hint: ${error.hint || 'none'} | Details: ${error.details || 'none'}`);
+        console.error('[HealthCheck] Supabase ping failed:', error);
+      } else {
+        setStatus('ok');
+        setDetail(`Connected to ${supabaseUrl} — query returned ${data?.length ?? 0} row(s).`);
+      }
+    } catch (err: any) {
+      setStatus('error');
+      setDetail(err?.message || String(err));
+      console.error('[HealthCheck] Exception during ping:', err);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={runCheck}
+        disabled={status === 'checking'}
+        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-dashed border-amber-500/40 bg-amber-500/5 text-amber-400 text-xs font-600 hover:border-amber-500/70 hover:bg-amber-500/10 transition-all disabled:opacity-60"
+      >
+        {status === 'checking' ? (
+          <>
+            <Icon name="ArrowPathIcon" size={13} className="animate-spin" />
+            Checking Connection...
+          </>
+        ) : (
+          <>
+            <Icon name="SignalIcon" size={13} />
+            🔧 System Health Check
+          </>
+        )}
+      </button>
+
+      {status === 'ok' && (
+        <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 animate-fade-in">
+          <Icon name="CheckCircleIcon" size={14} className="text-green-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-green-300 break-words leading-relaxed">✅ Database Connected — {detail}</p>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-red-500/10 border-2 border-red-500/40 animate-fade-in">
+          <Icon name="XCircleIcon" size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-700 text-red-400 mb-0.5">❌ Connection Failed</p>
+            <p className="text-xs text-red-300 break-words leading-relaxed font-mono">{detail}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DemoCredentialsProps {
   onSelect: (email: string, password: string) => void;
 }
@@ -162,6 +276,7 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
   const supabase = createClient();
 
   const {
@@ -179,22 +294,42 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
+    setSupabaseError(null);
     try {
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
       if (error) {
+        console.error('[SignIn] auth.signInWithPassword error:', error);
+        setSupabaseError({ message: error.message, code: error.status?.toString() || (error as any).code });
         setError('password', { message: error.message });
         setIsLoading(false);
         return;
       }
+
       // Fetch profile to determine role
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('role, full_name')
-        .eq('id', authData.user.id)
-        .single();
+      let profile: any = null;
+      let profileError: any = null;
+      try {
+        const result = await supabase
+          .from('user_profiles')
+          .select('role, full_name')
+          .eq('id', authData.user.id)
+          .single();
+        profile = result.data;
+        profileError = result.error;
+        if (profileError) {
+          console.error('[SignIn] user_profiles fetch error:', profileError);
+          setSupabaseError({
+            message: `Profile fetch failed: ${profileError.message}`,
+            code: profileError.code,
+          });
+        }
+      } catch (profileFetchErr: any) {
+        console.error('[SignIn] user_profiles fetch exception:', profileFetchErr);
+        setSupabaseError({ message: `Profile fetch exception: ${profileFetchErr?.message || String(profileFetchErr)}` });
+      }
 
       // Fallback: use user_metadata if profile fetch fails
       const role: string =
@@ -224,7 +359,9 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       } else {
         router.push('/student-dashboard');
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[SignIn] Unexpected exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
       setError('password', { message: 'Sign in failed. Please try again.' });
     }
     setIsLoading(false);
@@ -232,6 +369,18 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+      {/* System Health Check — temporary diagnostic tool */}
+      <SystemHealthCheck />
+
+      {/* Visible Supabase Error Banner */}
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
       <DemoCredentials onSelect={handleDemoSelect} />
       <div>
         <label className="block text-sm font-600 text-foreground mb-1.5">
@@ -331,6 +480,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
   const supabase = createClient();
 
   const {
@@ -346,6 +496,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   const onSubmit = async (data: SignupForm) => {
     setIsLoading(true);
+    setSupabaseError(null);
     try {
       // For student: validate mentor invite code and resolve mentor UUID
       let linkedStudentId: string | null = null;
@@ -357,22 +508,33 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
-        // Look up the MENTOR by their mentor_code in user_profiles
-        // This resolves the invite code to the mentor's actual UUID
-        const { data: mentorRow, error: mentorLookupErr } = await supabase
-          .from('user_profiles')
-          .select('id, role, mentor_code')
-          .eq('mentor_code', data.inviteCode.trim().toUpperCase())
-          .eq('role', 'mentor')
-          .maybeSingle();
+        try {
+          const { data: mentorRow, error: mentorLookupErr } = await supabase
+            .from('user_profiles')
+            .select('id, role, mentor_code')
+            .eq('mentor_code', data.inviteCode.trim().toUpperCase())
+            .eq('role', 'mentor')
+            .maybeSingle();
 
-        if (mentorLookupErr || !mentorRow) {
-          setError('inviteCode', { message: 'Invalid invite code. Please check with your mentor.' });
+          if (mentorLookupErr) {
+            console.error('[SignUp] mentor lookup error:', mentorLookupErr);
+            setSupabaseError({ message: `Mentor code lookup failed: ${mentorLookupErr.message}`, code: mentorLookupErr.code });
+            setError('inviteCode', { message: `Lookup failed: ${mentorLookupErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!mentorRow) {
+            setError('inviteCode', { message: 'Invalid invite code. Please check with your mentor.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedMentorId = mentorRow.id;
+        } catch (mentorErr: any) {
+          console.error('[SignUp] mentor lookup exception:', mentorErr);
+          setSupabaseError({ message: `Mentor lookup exception: ${mentorErr?.message || String(mentorErr)}` });
           setIsLoading(false);
           return;
         }
-        // The mentor's UUID is now resolved
-        linkedMentorId = mentorRow.id;
       }
 
       // For parent: validate parent link code and resolve student UUID
@@ -383,67 +545,105 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           setIsLoading(false);
           return;
         }
-        // Look up the student by parent_link_code to get their actual UUID
-        const { data: studentRow, error: plcErr } = await supabase
-          .from('students')
-          .select('id, parent_link_code, mentor_id')
-          .eq('parent_link_code', data.parentLinkCode.trim())
-          .maybeSingle();
+        try {
+          const { data: studentRow, error: plcErr } = await supabase
+            .from('students')
+            .select('id, parent_link_code, mentor_id')
+            .eq('parent_link_code', data.parentLinkCode.trim())
+            .maybeSingle();
 
-        if (plcErr || !studentRow) {
-          setError('parentLinkCode', { message: 'Invalid Parent Link Code. Ask your child to generate one from their dashboard.' });
+          if (plcErr) {
+            console.error('[SignUp] parent link code lookup error:', plcErr);
+            setSupabaseError({ message: `Parent link code lookup failed: ${plcErr.message}`, code: plcErr.code });
+            setError('parentLinkCode', { message: `Lookup failed: ${plcErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!studentRow) {
+            setError('parentLinkCode', { message: 'Invalid Parent Link Code. Ask your child to generate one from their dashboard.' });
+            setIsLoading(false);
+            return;
+          }
+          parentLinkedStudentId = studentRow.id;
+        } catch (plcEx: any) {
+          console.error('[SignUp] parent link code exception:', plcEx);
+          setSupabaseError({ message: `Parent link code exception: ${plcEx?.message || String(plcEx)}` });
           setIsLoading(false);
           return;
         }
-        // Store the student's UUID as the linked_student_id
-        parentLinkedStudentId = studentRow.id;
       }
 
       // For mentor with counselor invite code: validate it and resolve counselor UUID
       let linkedCounselorId: string | null = null;
       if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length === 6) {
-        const { data: codeRow, error: codeErr } = await supabase
-          .from('counselor_mentor_invites')
-          .select('id, counselor_id, used_by')
-          .eq('invite_code', data.counselorInviteCode.trim())
-          .maybeSingle();
+        try {
+          const { data: codeRow, error: codeErr } = await supabase
+            .from('counselor_mentor_invites')
+            .select('id, counselor_id, used_by')
+            .eq('invite_code', data.counselorInviteCode.trim())
+            .maybeSingle();
 
-        if (codeErr || !codeRow) {
-          setError('counselorInviteCode', { message: 'Invalid counselor code. Please check with your counselor.' });
+          if (codeErr) {
+            console.error('[SignUp] counselor invite lookup error:', codeErr);
+            setSupabaseError({ message: `Counselor code lookup failed: ${codeErr.message}`, code: codeErr.code });
+            setError('counselorInviteCode', { message: `Lookup failed: ${codeErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!codeRow) {
+            setError('counselorInviteCode', { message: 'Invalid counselor code. Please check with your counselor.' });
+            setIsLoading(false);
+            return;
+          }
+          if (codeRow.used_by) {
+            setError('counselorInviteCode', { message: 'This counselor code has already been used.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedCounselorId = codeRow.counselor_id;
+        } catch (cEx: any) {
+          console.error('[SignUp] counselor invite exception:', cEx);
+          setSupabaseError({ message: `Counselor invite exception: ${cEx?.message || String(cEx)}` });
           setIsLoading(false);
           return;
         }
-        if (codeRow.used_by) {
-          setError('counselorInviteCode', { message: 'This counselor code has already been used.' });
-          setIsLoading(false);
-          return;
-        }
-        // counselor_id is already the counselor's UUID from the invites table
-        linkedCounselorId = codeRow.counselor_id;
       }
 
       // For mentor/student with school invite code: validate it and resolve school UUID
       let linkedSchoolId: string | null = null;
       const schoolCodeRoles: UserRole[] = ['mentor', 'student'];
       if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length === 6) {
-        const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
-          .from('school_invite_codes')
-          .select('id, school_id, used_by')
-          .eq('invite_code', data.schoolInviteCode.trim())
-          .maybeSingle();
+        try {
+          const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
+            .from('school_invite_codes')
+            .select('id, school_id, used_by')
+            .eq('invite_code', data.schoolInviteCode.trim())
+            .maybeSingle();
 
-        if (schoolCodeErr || !schoolCodeRow) {
-          setError('schoolInviteCode', { message: 'Invalid school code. Please check with your school.' });
+          if (schoolCodeErr) {
+            console.error('[SignUp] school invite lookup error:', schoolCodeErr);
+            setSupabaseError({ message: `School code lookup failed: ${schoolCodeErr.message}`, code: schoolCodeErr.code });
+            setError('schoolInviteCode', { message: `Lookup failed: ${schoolCodeErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!schoolCodeRow) {
+            setError('schoolInviteCode', { message: 'Invalid school code. Please check with your school.' });
+            setIsLoading(false);
+            return;
+          }
+          if (schoolCodeRow.used_by) {
+            setError('schoolInviteCode', { message: 'This school code has already been used.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedSchoolId = schoolCodeRow.school_id;
+        } catch (sEx: any) {
+          console.error('[SignUp] school invite exception:', sEx);
+          setSupabaseError({ message: `School invite exception: ${sEx?.message || String(sEx)}` });
           setIsLoading(false);
           return;
         }
-        if (schoolCodeRow.used_by) {
-          setError('schoolInviteCode', { message: 'This school code has already been used.' });
-          setIsLoading(false);
-          return;
-        }
-        // school_id is already the school's UUID from the invite codes table
-        linkedSchoolId = schoolCodeRow.school_id;
       }
 
       // Generate mentor_code for mentors (8-char alphanumeric, uppercase)
@@ -452,57 +652,71 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           ? Math.random().toString(36).substring(2, 10).toUpperCase()
           : null;
 
-      // Map role value: 'student' maps to 'student' in DB
       const roleValue = data.role;
 
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            role: roleValue,
-            mentor_code: mentorCode,
-            // Pass all resolved UUIDs in metadata so the DB trigger (SECURITY DEFINER)
-            // can write them to user_profiles atomically — bypassing RLS session issues.
-            mentor_id: linkedMentorId || null,
-            student_id: linkedStudentId || null,
-            linked_student_id: parentLinkedStudentId || null,
-            counselor_id: linkedCounselorId || null,
-            school_id: linkedSchoolId || null,
+      // ── Step 1: Create auth user ──────────────────────────────────────────────
+      let authData: any = null;
+      try {
+        const result = await supabase.auth.signUp({
+          email: data.email,
+          password: data.password,
+          options: {
+            data: {
+              full_name: data.fullName,
+              role: roleValue,
+              mentor_code: mentorCode,
+              mentor_id: linkedMentorId || null,
+              student_id: linkedStudentId || null,
+              linked_student_id: parentLinkedStudentId || null,
+              counselor_id: linkedCounselorId || null,
+              school_id: linkedSchoolId || null,
+            },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
+        });
 
-      if (signUpError) {
-        console.error('[SignUp] auth.signUp error:', signUpError);
-        // Handle "User already registered" gracefully
-        if (
-          signUpError.message?.toLowerCase().includes('user already registered') ||
-          signUpError.message?.toLowerCase().includes('already registered') ||
-          signUpError.status === 422
-        ) {
-          setError('email', {
-            message: 'An account with this email already exists. Please sign in instead.',
+        if (result.error) {
+          console.error('[SignUp] auth.signUp error:', result.error);
+          const signUpError = result.error;
+          setSupabaseError({
+            message: signUpError.message,
+            code: signUpError.status?.toString() || (signUpError as any).code,
           });
-        } else {
-          setError('email', { message: signUpError.message });
+          if (
+            signUpError.message?.toLowerCase().includes('user already registered') ||
+            signUpError.message?.toLowerCase().includes('already registered') ||
+            signUpError.status === 422
+          ) {
+            setError('email', {
+              message: 'An account with this email already exists. Please sign in instead.',
+            });
+          } else {
+            setError('email', { message: signUpError.message });
+          }
+          setIsLoading(false);
+          return;
         }
+
+        if (!result.data?.user) {
+          setSupabaseError({ message: 'Sign up returned no user object. Please try again.' });
+          setError('email', { message: 'Sign up failed: no user returned. Please try again.' });
+          setIsLoading(false);
+          return;
+        }
+
+        authData = result.data;
+      } catch (authEx: any) {
+        console.error('[SignUp] auth.signUp exception:', authEx);
+        setSupabaseError({ message: `Auth exception: ${authEx?.message || String(authEx)}` });
+        setError('email', { message: authEx?.message || 'Sign up failed. Please try again.' });
         setIsLoading(false);
         return;
       }
 
-      if (!authData.user) {
-        setError('email', { message: 'Sign up failed: no user returned. Please try again.' });
-        setIsLoading(false);
-        return;
-      }
-
-      // UPSERT the profile row — handles both cases:
-      // 1. DB trigger already created the row → UPDATE with full data
-      // 2. No trigger or trigger hasn't fired yet → INSERT the row
-      const profileUpsert: Record<string, any> = {
+      // ── Step 2: Explicit INSERT into user_profiles (fallback trigger) ─────────
+      // This runs immediately after auth.signUp to guarantee the profile row exists,
+      // even if the DB trigger is missing or hasn't fired yet.
+      const profilePayload: Record<string, any> = {
         id: authData.user.id,
         email: data.email,
         full_name: data.fullName,
@@ -515,49 +729,57 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         school_id: linkedSchoolId || null,
       };
 
-      const { error: profileUpsertError } = await supabase
-        .from('user_profiles')
-        .upsert(profileUpsert, { onConflict: 'id' });
+      try {
+        const { error: profileInsertError } = await supabase
+          .from('user_profiles')
+          .upsert(profilePayload, { onConflict: 'id' });
 
-      if (profileUpsertError) {
-        console.error('[SignUp] user_profiles UPSERT error:', profileUpsertError);
-        // Surface actionable error to the user
-        if (profileUpsertError.code === '42501') {
-          setError('email', {
-            message: 'Permission denied writing your profile. Please contact support (RLS policy error).',
+        if (profileInsertError) {
+          console.error('[SignUp] user_profiles INSERT/UPSERT error:', profileInsertError);
+          // Surface the exact error — this is the most critical diagnostic
+          setSupabaseError({
+            message: `Profile INSERT failed: ${profileInsertError.message} | Details: ${profileInsertError.details || 'none'} | Hint: ${profileInsertError.hint || 'none'}`,
+            code: profileInsertError.code,
           });
-        } else if (profileUpsertError.code === '23505') {
-          setError('email', {
-            message: 'An account with this email already exists. Please sign in instead.',
-          });
+          // Don't block the user — auth succeeded, profile may still be created by trigger
+          toast.error(`⚠️ Profile write error (${profileInsertError.code}): ${profileInsertError.message}`);
         } else {
-          setError('email', {
-            message: `Profile creation failed: ${profileUpsertError.message}`,
-          });
+          console.log('[SignUp] user_profiles INSERT/UPSERT succeeded for user:', authData.user.id);
         }
-        setIsLoading(false);
-        return;
+      } catch (profileEx: any) {
+        console.error('[SignUp] user_profiles INSERT exception:', profileEx);
+        setSupabaseError({ message: `Profile INSERT exception: ${profileEx?.message || String(profileEx)}` });
+        toast.error(`⚠️ Profile write exception: ${profileEx?.message || String(profileEx)}`);
       }
 
-      // If mentor with counselor code: mark invite as used
+      // ── Step 3: Mark invite codes as used ────────────────────────────────────
       if (data.role === 'mentor' && linkedCounselorId && data.counselorInviteCode) {
-        const { error: cmiErr } = await supabase
-          .from('counselor_mentor_invites')
-          .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
-          .eq('invite_code', data.counselorInviteCode.trim());
-        if (cmiErr) {
-          console.error('[SignUp] counselor_mentor_invites update error:', cmiErr);
+        try {
+          const { error: cmiErr } = await supabase
+            .from('counselor_mentor_invites')
+            .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+            .eq('invite_code', data.counselorInviteCode.trim());
+          if (cmiErr) {
+            console.error('[SignUp] counselor_mentor_invites update error:', cmiErr);
+            setSupabaseError({ message: `Counselor invite mark-used failed: ${cmiErr.message}`, code: cmiErr.code });
+          }
+        } catch (cmiEx: any) {
+          console.error('[SignUp] counselor_mentor_invites update exception:', cmiEx);
         }
       }
 
-      // If mentor or student with school code: mark invite as used
       if (linkedSchoolId && data.schoolInviteCode) {
-        const { error: sciErr } = await supabase
-          .from('school_invite_codes')
-          .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
-          .eq('invite_code', data.schoolInviteCode.trim());
-        if (sciErr) {
-          console.error('[SignUp] school_invite_codes update error:', sciErr);
+        try {
+          const { error: sciErr } = await supabase
+            .from('school_invite_codes')
+            .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+            .eq('invite_code', data.schoolInviteCode.trim());
+          if (sciErr) {
+            console.error('[SignUp] school_invite_codes update error:', sciErr);
+            setSupabaseError({ message: `School invite mark-used failed: ${sciErr.message}`, code: sciErr.code });
+          }
+        } catch (sciEx: any) {
+          console.error('[SignUp] school_invite_codes update exception:', sciEx);
         }
       }
 
@@ -565,6 +787,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       setSuccess(true);
       toast.success('Account created! You can now sign in.');
     } catch (err: any) {
+      console.error('[SignUp] Outer catch exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign up failed. Please try again.' });
       setError('email', { message: err?.message || 'Sign up failed. Please try again.' });
       setIsLoading(false);
     }
@@ -590,6 +814,15 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      {/* Visible Supabase Error Banner */}
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
       {/* Role Selection */}
       <div>
         <label className="block text-sm font-600 text-foreground mb-2">
@@ -882,18 +1115,32 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 function ResetPasswordForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
   const supabase = createClient();
 
   const { register, handleSubmit, formState: { errors } } = useForm<{ email: string }>();
 
   const onSubmit = async (data: { email: string }) => {
     setIsLoading(true);
-    await supabase.auth.resetPasswordForEmail(data.email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
-    });
-    setIsLoading(false);
-    setSent(true);
-    toast.success('Password reset email sent!');
+    setSupabaseError(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      });
+      if (error) {
+        console.error('[ResetPassword] resetPasswordForEmail error:', error);
+        setSupabaseError({ message: error.message, code: error.status?.toString() || (error as any).code });
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(false);
+      setSent(true);
+      toast.success('Password reset email sent!');
+    } catch (err: any) {
+      console.error('[ResetPassword] exception:', err);
+      setSupabaseError({ message: err?.message || 'Reset failed. Please try again.' });
+      setIsLoading(false);
+    }
   };
 
   if (sent) {
@@ -916,6 +1163,14 @@ function ResetPasswordForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => voi
 
   return (
     <div className="flex flex-col gap-5">
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
       <div className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20">
         <Icon name="ShieldCheckIcon" size={18} className="text-warning flex-shrink-0" />
         <p className="text-sm text-foreground/80 leading-relaxed">

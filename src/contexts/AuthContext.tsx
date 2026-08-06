@@ -70,12 +70,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .select('*')
         .eq('id', userId)
         .single();
-      if (!error && data) {
+      if (error) {
+        console.error(`[AuthContext] fetchProfile error for user ${userId} — Code: ${error.code} | Message: ${error.message} | Details: ${error.details || 'none'} | Hint: ${error.hint || 'none'}`);
+      } else if (data) {
         setProfile(data as UserProfile);
         setRoleCookie((data as any).role);
       }
-    } catch {
-      // ignore
+    } catch (err: any) {
+      console.error('[AuthContext] fetchProfile exception:', err?.message || String(err));
     } finally {
       setProfileLoading(false);
     }
@@ -154,7 +156,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       email,
       password
     });
-    if (error) throw error;
+    if (error) {
+      console.error(`[AuthContext] signIn error — Code: ${(error as any).code || error.status} | Message: ${error.message}`);
+      throw error;
+    }
     if (data.user) {
       await fetchProfile(data.user.id);
     }
@@ -185,7 +190,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       .select('*')
       .eq('id', user.id)
       .single();
-    if (error) throw error;
+    if (error) {
+      console.error(`[AuthContext] getUserProfile error — Code: ${error.code} | Message: ${error.message} | Details: ${error.details || 'none'}`);
+      throw error;
+    }
     return data as UserProfile;
   };
 
