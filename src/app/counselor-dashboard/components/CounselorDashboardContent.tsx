@@ -373,20 +373,31 @@ export default function CounselorDashboardContent() {
     if (!counselorProfile) return;
     setGeneratingCode(true);
     try {
-      // Generate a unique 6-digit code
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const { error } = await supabase
+      // Check if a code already exists for this counselor
+      const { data: existing } = await supabase
         .from('counselor_mentor_invites')
-        .insert({ counselor_id: counselorProfile.id, invite_code: code });
+        .select('invite_code')
+        .eq('counselor_id', counselorProfile.id)
+        .limit(1)
+        .maybeSingle();
 
-      if (error) {
-        toast.error('Failed to generate code. Please try again.');
+      if (existing?.invite_code) {
+        toast.success(`Your counselor code: ${existing.invite_code}`, { duration: 5000 });
       } else {
-        toast.success(`Code generated: ${code}`);
-        loadData();
+        // Generate a new code only if none exists
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const { error } = await supabase
+          .from('counselor_mentor_invites')
+          .insert({ counselor_id: counselorProfile.id, invite_code: code });
+        if (error) {
+          toast.error('Failed to generate code. Please try again.');
+        } else {
+          toast.success(`Code generated: ${code}`);
+          loadData();
+        }
       }
     } catch {
-      toast.error('Failed to generate code.');
+      toast.error('Failed to get/generate code.');
     }
     setGeneratingCode(false);
   };

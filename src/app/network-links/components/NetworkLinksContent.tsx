@@ -215,17 +215,35 @@ function CounselorSchoolSection({ profile }: { profile: any }) {
 
   const generateCode = async () => {
     setGenerating(true);
-    const prefix = profile?.role === 'school' ? 'SCH' : 'CNS';
-    const code = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const { error } = await supabase.from(table).insert({
-      [idField]: profile.id,
-      invite_code: code,
-    });
-    if (error) {
-      toast.error('Failed to generate code: ' + error.message);
-    } else {
-      toast.success('New invite code generated!');
-      loadCodes();
+    try {
+      // Check if a code already exists for this user
+      const { data: existing } = await supabase
+        .from(table)
+        .select('invite_code')
+        .eq(idField, profile.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.invite_code) {
+        toast.success(`Your existing code: ${existing.invite_code}`, { duration: 5000 });
+        loadCodes();
+      } else {
+        // Only generate a new code if none exists
+        const prefix = profile?.role === 'school' ? 'SCH' : 'CNS';
+        const code = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        const { error } = await supabase.from(table).insert({
+          [idField]: profile.id,
+          invite_code: code,
+        });
+        if (error) {
+          toast.error('Failed to generate code: ' + error.message);
+        } else {
+          toast.success('Invite code generated!');
+          loadCodes();
+        }
+      }
+    } catch {
+      toast.error('Failed to get/generate code.');
     }
     setGenerating(false);
   };

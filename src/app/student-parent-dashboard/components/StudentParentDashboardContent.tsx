@@ -217,7 +217,7 @@ export default function StudentParentDashboardContent() {
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
 
   // Reflection form state
-  const [reflectionForm, setReflectionForm] = useState({ learned_this_week: '', needs_work: '', team_dynamics: '' });
+  const [reflectionForm, setReflectionForm] = useState({ learned_this_week: '', needs_work: '', team_dynamics: '', peer_appreciation: '' });
   const [submittingReflection, setSubmittingReflection] = useState(false);
 
   // Feedback form state
@@ -328,6 +328,7 @@ export default function StudentParentDashboardContent() {
 
   const handleSubmitReflection = async () => {
     if (!reflectionForm.learned_this_week.trim()) { toast.error('Please fill in what you learned this week.'); return; }
+    if (!reflectionForm.peer_appreciation.trim()) { toast.error('Please fill in the Team Shoutout field.'); return; }
     setSubmittingReflection(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -340,10 +341,11 @@ export default function StudentParentDashboardContent() {
       learned_this_week: reflectionForm.learned_this_week,
       needs_work: reflectionForm.needs_work,
       team_dynamics: reflectionForm.team_dynamics,
+      peer_appreciation: reflectionForm.peer_appreciation,
     });
     if (error) { toast.error('Failed to submit reflection.'); } else {
       toast.success('Reflection submitted!');
-      setReflectionForm({ learned_this_week: '', needs_work: '', team_dynamics: '' });
+      setReflectionForm({ learned_this_week: '', needs_work: '', team_dynamics: '', peer_appreciation: '' });
       loadData();
     }
     setSubmittingReflection(false);
@@ -740,6 +742,13 @@ export default function StudentParentDashboardContent() {
                 <label className="block text-sm font-600 text-foreground mb-1.5">How was my team dynamics, and what was the best thing about my team?</label>
                 <textarea className="input-mystic min-h-[80px] resize-none" placeholder="Reflect on your teamwork experience..." value={reflectionForm.team_dynamics} onChange={(e) => setReflectionForm((f) => ({ ...f, team_dynamics: e.target.value }))} />
               </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">
+                  🌟 Team Shoutout <span className="text-negative">*</span>
+                </label>
+                <p className="text-xs text-muted-foreground mb-1.5">Observe one team member and write something positive they did today!</p>
+                <textarea className="input-mystic min-h-[80px] resize-none" placeholder="e.g. Priya helped everyone understand the activity by explaining it step by step..." value={reflectionForm.peer_appreciation} onChange={(e) => setReflectionForm((f) => ({ ...f, peer_appreciation: e.target.value }))} />
+              </div>
               <button className="btn-primary self-start" onClick={handleSubmitReflection} disabled={submittingReflection}>
                 {submittingReflection ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Submitting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Submit Reflection</>}
               </button>
@@ -780,9 +789,9 @@ export default function StudentParentDashboardContent() {
               <h2 className="text-base font-700 text-foreground">Rate Your Mentor</h2>
             </div>
             <div className="flex flex-col gap-5">
-              <StarRating label="Mentor Interaction & Responsiveness" value={feedbackForm.mentor_interaction_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, mentor_interaction_score: v }))} />
-              <StarRating label="Active Listening" value={feedbackForm.active_listening_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, active_listening_score: v }))} />
-              <StarRating label="Teaching Clarity" value={feedbackForm.teaching_clarity_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, teaching_clarity_score: v }))} />
+              <StarRating label="Was my mentor fun and helpful?" value={feedbackForm.mentor_interaction_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, mentor_interaction_score: v }))} />
+              <StarRating label="Did my mentor listen to me carefully?" value={feedbackForm.active_listening_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, active_listening_score: v }))} />
+              <StarRating label="Did I understand the activities clearly?" value={feedbackForm.teaching_clarity_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, teaching_clarity_score: v }))} />
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Additional Comments</label>
                 <textarea className="input-mystic min-h-[100px] resize-none" placeholder="Share any specific feedback..." value={feedbackForm.fruitful_comments} onChange={(e) => setFeedbackForm((f) => ({ ...f, fruitful_comments: e.target.value }))} />

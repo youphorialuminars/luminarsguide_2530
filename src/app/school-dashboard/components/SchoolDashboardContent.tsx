@@ -10,6 +10,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
+import SchoolCalendar from './SchoolCalendar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface MentorProfile {
@@ -56,7 +57,7 @@ const PILLARS = [
 
 const PILLAR_COLORS = ['#c4b5fd', '#93c5fd', '#86efac', '#fcd34d', '#f9a8d4'];
 
-type DashboardTab = 'overview' | 'students' | 'mentors' | 'invites';
+type DashboardTab = 'overview' | 'students' | 'mentors' | 'invites' | 'calendar';
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub }: { icon: string; label: string; value: string | number; sub?: string }) {
@@ -163,19 +164,33 @@ export default function SchoolDashboardContent() {
     });
   }, [router, supabase, loadData]);
 
-  const generateSchoolCode = async () => {
+  // ─── Fetch-or-create invite code (one per school) ─────────────────────────
+  const handleSchoolCode = async () => {
     if (!schoolId) return;
     setIsGeneratingCode(true);
     try {
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const { error } = await supabase
+      // Check if a code already exists
+      const { data: existing } = await supabase
         .from('school_invite_codes')
-        .insert({ school_id: schoolId, invite_code: code });
-      if (error) throw error;
-      toast.success(`School code generated: ${code}`);
-      loadData(schoolId);
+        .select('invite_code')
+        .eq('school_id', schoolId)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.invite_code) {
+        toast.success(`Your school code: ${existing.invite_code}`, { duration: 5000 });
+      } else {
+        // Generate a new code only if none exists
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const { error } = await supabase
+          .from('school_invite_codes')
+          .insert({ school_id: schoolId, invite_code: code });
+        if (error) throw error;
+        toast.success(`School code generated: ${code}`);
+        loadData(schoolId);
+      }
     } catch {
-      toast.error('Failed to generate code');
+      toast.error('Failed to get/generate code');
     }
     setIsGeneratingCode(false);
   };
@@ -237,6 +252,7 @@ export default function SchoolDashboardContent() {
     { id: 'students', label: 'Student Directory', icon: 'UserGroupIcon' },
     { id: 'mentors', label: 'Mentor Directory', icon: 'AcademicCapIcon' },
     { id: 'invites', label: 'Invite Codes', icon: 'KeyIcon' },
+    { id: 'calendar', label: 'School Calendar', icon: 'CalendarDaysIcon' },
   ];
 
   if (isLoading) {
@@ -548,18 +564,20 @@ export default function SchoolDashboardContent() {
         <div className="animate-fade-in">
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h3 className="text-base font-700 text-foreground">School Invite Codes</h3>
+              <h3 className="text-base font-700 text-foreground">School Invite Code</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Share these 6-digit codes with Mentors and Students to link them to your school
+                Your school has one fixed invite code. Share it with Mentors and Students to link them to your school.
               </p>
             </div>
             <button
-              onClick={generateSchoolCode}
+              onClick={handleSchoolCode}
               disabled={isGeneratingCode}
               className="btn-primary"
             >
               {isGeneratingCode ? (
-                <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Generating…</>
+                <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Loading…</>
+              ) : inviteCodes.length > 0 ? (
+                <><Icon name="EyeIcon" size={15} /> Show My Code</>
               ) : (
                 <><Icon name="PlusCircleIcon" size={15} /> Generate School Code</>
               )}
@@ -569,8 +587,8 @@ export default function SchoolDashboardContent() {
           {inviteCodes.length === 0 ? (
             <div className="bg-card border border-border rounded-2xl p-12 text-center">
               <Icon name="KeyIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground font-500">No codes generated yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Click "Generate School Code" to create your first invite code</p>
+              <p className="text-muted-foreground font-500">No code generated yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Click "Generate School Code" to create your permanent invite code</p>
             </div>
           ) : (
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
@@ -583,16 +601,14 @@ export default function SchoolDashboardContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {inviteCodes.map((code) => (
+                  {inviteCodes.slice(0, 1).map((code) => (
                     <tr key={code.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
                       <td className="px-5 py-3.5">
                         <span className="font-mono text-base font-700 text-primary tracking-widest">{code.invite_code}</span>
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-600 ${
-                          code.used_by
-                            ? 'bg-muted/30 text-muted-foreground'
-                            : 'bg-positive/10 text-positive'
+                          code.used_by ? 'bg-muted/30 text-muted-foreground' : 'bg-positive/10 text-positive'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${code.used_by ? 'bg-muted-foreground' : 'bg-positive'}`} />
                           {code.used_by ? 'Used' : 'Available'}
@@ -607,6 +623,26 @@ export default function SchoolDashboardContent() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── School Calendar Tab ── */}
+      {activeTab === 'calendar' && schoolId && (
+        <div className="animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Icon name="CalendarDaysIcon" size={18} className="text-primary" />
+              </div>
+              <div>
+                <h3 className="text-base font-700 text-foreground">School Calendar</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Add Performance Schedules and Holidays for your school
+                </p>
+              </div>
+            </div>
+            <SchoolCalendar schoolId={schoolId} />
+          </div>
         </div>
       )}
     </div>

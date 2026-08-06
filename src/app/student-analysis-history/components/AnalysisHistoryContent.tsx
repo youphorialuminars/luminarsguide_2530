@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
@@ -9,11 +9,169 @@ import type { Session } from '@/lib/mockData';
 import AnalysisCards from './AnalysisCards';
 import SessionHistoryTable from './SessionHistoryTable';
 import AttendanceCalendar from './AttendanceCalendar';
+import { createClient } from '@/lib/supabase/client';
 
 const ScoreBarChart = dynamic(() => import('./ScoreBarChart'), { ssr: false });
 const TopicPieChart = dynamic(() => import('./TopicPieChart'), { ssr: false });
 
-export default function AnalysisHistoryContent() {
+// ─── Student Reflections View (Mentor Read-Only) ──────────────────────────────
+interface StudentReflection {
+  id: string;
+  week_start: string;
+  learned_this_week: string;
+  needs_work: string;
+  team_dynamics: string;
+  peer_appreciation: string;
+  mentor_response: string | null;
+  created_at: string;
+}
+
+function StudentReflectionsView({ studentId }: { studentId: string }) {
+  const supabase = createClient();
+  const [reflections, setReflections] = useState<StudentReflection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [responseText, setResponseText] = useState('');
+  const [submittingResponse, setSubmittingResponse] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      // Find the student's user_id from students table
+      const { data: studentRow } = await supabase
+        .from('students')
+        .select('student_user_id')
+        .eq('id', studentId)
+        .maybeSingle();
+
+      if (studentRow?.student_user_id) {
+        const { data } = await supabase
+          .from('student_reflections')
+          .select('id, week_start, learned_this_week, needs_work, team_dynamics, peer_appreciation, mentor_response, created_at')
+          .eq('user_id', studentRow.student_user_id)
+          .order('created_at', { ascending: false });
+        setReflections(data || []);
+      }
+      setLoading(false);
+    };
+    if (studentId) load();
+  }, [studentId, supabase]);
+
+  const handleRespond = async (reflectionId: string) => {
+    if (!responseText.trim()) return;
+    setSubmittingResponse(true);
+    const { error } = await supabase
+      .from('student_reflections')
+      .update({ mentor_response: responseText, responded_at: new Date().toISOString() })
+      .eq('id', reflectionId);
+    if (!error) {
+      setReflections((prev) => prev.map((r) => r.id === reflectionId ? { ...r, mentor_response: responseText } : r));
+      setRespondingId(null);
+      setResponseText('');
+    }
+    setSubmittingResponse(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Icon name="ArrowPathIcon" size={22} className="text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-fade-in flex flex-col gap-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-700 text-foreground">Student Reflections</h2>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">Read Only</span>
+      </div>
+
+      {reflections.length === 0 ? (
+        <div className="card-elevated p-10 text-center">
+          <Icon name="PencilSquareIcon" size={36} className="text-muted-foreground mx-auto mb-3 opacity-30" />
+          <p className="text-sm text-muted-foreground">No reflections submitted yet.</p>
+        </div>
+      ) : (
+        reflections.map((r) => (
+          <div key={r.id} className="card-elevated p-5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-600 text-muted-foreground">
+                Week of {new Date(r.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+              <span className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</span>
+            </div>
+
+            {r.learned_this_week && (
+              <div>
+                <p className="text-xs font-700 text-primary mb-1">What I learned this week</p>
+                <p className="text-sm text-foreground/80 leading-relaxed">{r.learned_this_week}</p>
+              </div>
+            )}
+            {r.needs_work && (
+              <div>
+                <p className="text-xs font-700 text-warning mb-1">Needs more work</p>
+                <p className="text-sm text-foreground/80 leading-relaxed">{r.needs_work}</p>
+              </div>
+            )}
+            {r.team_dynamics && (
+              <div>
+                <p className="text-xs font-700 text-info mb-1">Team dynamics</p>
+                <p className="text-sm text-foreground/80 leading-relaxed">{r.team_dynamics}</p>
+              </div>
+            )}
+            {r.peer_appreciation && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                <p className="text-xs font-700 text-amber-700 mb-1">🌟 Team Shoutout</p>
+                <p className="text-sm text-amber-900 leading-relaxed">{r.peer_appreciation}</p>
+              </div>
+            )}
+
+            {r.mentor_response ? (
+              <div className="p-3 rounded-xl bg-primary/5 border border-primary/20">
+                <p className="text-xs font-700 text-primary mb-1">Your Response</p>
+                <p className="text-sm text-foreground/80">{r.mentor_response}</p>
+              </div>
+            ) : (
+              <div>
+                {respondingId === r.id ? (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      className="input-mystic resize-none text-sm"
+                      rows={3}
+                      placeholder="Write a response to this reflection..."
+                      value={responseText}
+                      onChange={(e) => setResponseText(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRespond(r.id)}
+                        disabled={submittingResponse}
+                        className="btn-primary text-xs py-1.5 px-3"
+                      >
+                        {submittingResponse ? 'Sending...' : 'Send Response'}
+                      </button>
+                      <button onClick={() => { setRespondingId(null); setResponseText(''); }} className="btn-secondary text-xs py-1.5 px-3">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setRespondingId(r.id)}
+                    className="btn-ghost text-xs"
+                  >
+                    <Icon name="ChatBubbleLeftIcon" size={13} /> Respond
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+export default function StudentDetailView() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const studentId = searchParams.get('studentId') || 'student-001';
@@ -25,7 +183,7 @@ export default function AnalysisHistoryContent() {
   const [activeSession, setActiveSession] = useState<Session>(
     studentSessions[0] || mockSessions[0]
   );
-  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance' | 'reflections'>('analysis');
 
   const barChartData = useMemo(() => {
     return [...studentSessions]
@@ -73,6 +231,7 @@ export default function AnalysisHistoryContent() {
     { id: 'charts' as const, label: 'Progress Charts', icon: 'ChartBarIcon' },
     { id: 'history' as const, label: 'Session History', icon: 'ClockIcon' },
     { id: 'attendance' as const, label: 'Attendance', icon: 'CalendarDaysIcon' },
+    { id: 'reflections' as const, label: 'Reflections', icon: 'PencilSquareIcon' },
   ];
 
   const formatDate = (dateStr: string) => {
@@ -423,6 +582,10 @@ export default function AnalysisHistoryContent() {
           </div>
           <AttendanceCalendar studentId={student.id} />
         </div>
+      )}
+
+      {activeTab === 'reflections' && (
+        <StudentReflectionsView studentId={studentId} />
       )}
 
       {/* Student Notes */}
