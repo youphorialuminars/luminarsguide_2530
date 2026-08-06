@@ -228,7 +228,7 @@ export default function NewSessionContent() {
 
     setIsLoading(true);
     try {
-      // 1. Call Gemini AI via the existing analyze-session API
+      // 1. Call AI via the analyze-session API (waterfall failover: Gemini → Groq → Cohere → OpenRouter → HuggingFace)
       const aiResponse = await fetch('/api/analyze-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -311,7 +311,7 @@ export default function NewSessionContent() {
       router.push(`/student-analysis-history?studentId=${selectedStudentId}&newSession=true`);
     } catch (err: any) {
       console.error('Session submit error:', err);
-      toast.error(err?.message || 'Failed to generate analysis. Please try again.');
+      toast.error('Analysis failed. Please try again.');
     }
     setIsLoading(false);
   };
@@ -559,8 +559,7 @@ export default function NewSessionContent() {
             {isLoading ? (
               <div className="flex items-center gap-2.5 justify-center">
                 <Icon name="ArrowPathIcon" size={16} className="animate-spin" />
-                <span>Generating Analysis...</span>
-                <span className="text-white/70 text-xs">(AI processing)</span>
+                <span>Analyzing session data...</span>
               </div>
             ) : (
               <>
@@ -580,7 +579,7 @@ export default function NewSessionContent() {
               <Icon name="SparklesIcon" size={32} className="text-primary animate-pulse" />
             </div>
             <div>
-              <h3 className="font-700 text-foreground text-lg">Generating Analysis</h3>
+              <h3 className="font-700 text-foreground text-lg">Analyzing session data...</h3>
               <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
                 Our veteran educator AI is synthesising all five observation areas with the test score to craft personalised guidance...
               </p>
