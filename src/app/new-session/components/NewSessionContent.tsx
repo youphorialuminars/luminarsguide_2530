@@ -156,6 +156,10 @@ export default function NewSessionContent() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [mentorId, setMentorId] = useState<string | null>(null);
   const [loadingStudents, setLoadingStudents] = useState(true);
+  // Actual backend routing state — populated after API responds
+  const [providerUsed, setProviderUsed] = useState<string | null>(null);
+  const [responseTimeMs, setResponseTimeMs] = useState<number | null>(null);
+  const [isSensitiveFromBackend, setIsSensitiveFromBackend] = useState<boolean | null>(null);
 
   const {
     register,
@@ -231,8 +235,13 @@ export default function NewSessionContent() {
     if (!selectedStudent) { toast.error('Please select a student'); return; }
 
     setIsLoading(true);
+    // Reset previous routing state on new submission
+    setProviderUsed(null);
+    setResponseTimeMs(null);
+    setIsSensitiveFromBackend(null);
     try {
       // 1. Call AI via the analyze-session API (waterfall failover: Gemini → Groq → Cohere → OpenRouter → HuggingFace)
+      const aiStart = Date.now();
       const aiResponse = await fetch('/api/analyze-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,7 +267,12 @@ export default function NewSessionContent() {
         throw new Error(errData.error || 'AI analysis failed');
       }
 
-      const { analysis } = await aiResponse.json();
+      const { analysis, modelUsed, isSensitive: sensitiveFlag } = await aiResponse.json();
+      const elapsed = Date.now() - aiStart;
+      // Capture actual backend routing state for the indicator
+      setProviderUsed(modelUsed ?? null);
+      setResponseTimeMs(elapsed);
+      setIsSensitiveFromBackend(sensitiveFlag ?? null);
 
       // 2. Insert session record into DB
       const today = new Date().toISOString().split('T')[0];
@@ -280,7 +294,7 @@ export default function NewSessionContent() {
           weaknesses: analysis.weaknesses || [],
           approach: analysis.approachRequired || [],
           tasks: analysis.taskList || [],
-          model: 'Gemini',
+          model: modelUsed || 'Gemini',
         })
         .select('id')
         .single();
@@ -541,6 +555,9 @@ export default function NewSessionContent() {
               observationLength={allObservations.length}
               topic={watchedTopic}
               isCacheHit={isCacheHit}
+              providerUsed={providerUsed}
+              responseTimeMs={responseTimeMs}
+              isSensitiveFromBackend={isSensitiveFromBackend}
             />
           </div>
         )}
