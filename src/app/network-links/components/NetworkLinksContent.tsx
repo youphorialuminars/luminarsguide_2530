@@ -52,33 +52,32 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
     }
     setGeneratingParentCode(true);
     try {
-      // Check if code already exists
-      const { data: existing } = await supabase
-        .from('students')
-        .select('parent_link_code')
-        .eq('id', profile.student_id)
-        .single();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error('Not authenticated'); return; }
 
-      if (existing?.parent_link_code) {
-        setParentLinkCode(existing.parent_link_code);
-        toast.success('Your parent link code is shown below.');
-        setGeneratingParentCode(false);
-        return;
-      }
-
-      // Generate a new 6-digit code
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const { error } = await supabase
-        .from('students')
-        .update({ parent_link_code: code })
-        .eq('id', profile.student_id);
-
-      if (error) {
-        toast.error('Failed to generate code: ' + error.message);
-      } else {
+      const res = await fetch('/api/invite-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'generate_student_link', studentId: profile.student_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        // Fallback: direct Supabase update if RPC fails (e.g. mentor calling for student)
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const { error } = await supabase
+          .from('students')
+          .update({ parent_link_code: code })
+          .eq('id', profile.student_id);
+        if (error) { toast.error('Failed to generate code: ' + error.message); return; }
         setParentLinkCode(code);
         toast.success('Parent Link Code generated!');
+        return;
       }
+      setParentLinkCode(json.code);
+      toast.success('Parent Link Code generated!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error generating code');
     } finally {
       setGeneratingParentCode(false);
     }
@@ -444,6 +443,10 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   const [linkedStudents, setLinkedStudents] = useState<LinkedStudent[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(true);
   const [unlinking, setUnlinking] = useState<string | null>(null);
+  // Mentor invite code state
+  const [mentorInviteCode, setMentorInviteCode] = useState<string | null>(profile?.mentor_code || null);
+  const [generatingMentorCode, setGeneratingMentorCode] = useState(false);
+  const [copiedMentorCode, setCopiedMentorCode] = useState(false);
 
   const loadLinkedStudents = useCallback(async () => {
     setStudentsLoading(true);
@@ -456,6 +459,38 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   }, [supabase, profile?.id]);
 
   useEffect(() => { loadLinkedStudents(); }, [loadLinkedStudents]);
+
+  const handleGenerateMentorCode = async () => {
+    setGeneratingMentorCode(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error('Not authenticated'); return; }
+
+      const res = await fetch('/api/invite-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'generate_mentor' }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast.error(json.error || 'Failed to generate code'); return; }
+      setMentorInviteCode(json.code);
+      toast.success('New mentor invite code generated!');
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err?.message || 'Error generating code');
+    } finally {
+      setGeneratingMentorCode(false);
+    }
+  };
+
+  const handleCopyMentorCode = () => {
+    if (!mentorInviteCode) return;
+    navigator.clipboard?.writeText(mentorInviteCode);
+    setCopiedMentorCode(true);
+    setTimeout(() => setCopiedMentorCode(false), 2000);
+    toast.success('Invite code copied!');
+  };
 
   const handleLinkCounselor = async () => {
     if (!counselorCode.trim()) return;
@@ -562,6 +597,57 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
 
   return (
     <div className="space-y-6">
+      {/* Mentor Invite Code */}
+      <div className="card-elevated p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-700 text-foreground">Your Mentor Invite Code</h2>
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Icon name="KeyIcon" size={17} className="text-primary" />
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Share this 8-character code with students so they can link to you during sign-up.
+        </p>
+        {mentorInviteCode ? (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
+            <span className="font-mono text-xl font-800 text-primary tracking-widest flex-1">
+              {mentorInviteCode}
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyMentorCode}
+              className="btn-ghost text-xs gap-1.5"
+            >
+              <Icon name={copiedMentorCode ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} />
+              {copiedMentorCode ? 'Copied!' : 'Copy'}
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateMentorCode}
+              disabled={generatingMentorCode}
+              className="btn-ghost text-xs gap-1.5"
+              title="Generate a new code (invalidates the old one)"
+            >
+              <Icon name="ArrowPathIcon" size={14} className={generatingMentorCode ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleGenerateMentorCode}
+            disabled={generatingMentorCode}
+            className="btn-primary"
+          >
+            {generatingMentorCode ? (
+              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Generating…</>
+            ) : (
+              <><Icon name="KeyIcon" size={16} /> Generate Invite Code</>
+            )}
+          </button>
+        )}
+      </div>
+
       {/* Link Codes */}
       <div className="card-elevated p-6">
         <h2 className="text-lg font-700 text-foreground mb-1">Link to Organization</h2>

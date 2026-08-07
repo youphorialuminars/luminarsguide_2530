@@ -752,7 +752,27 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         toast.error(`⚠️ Profile write exception: ${profileEx?.message || String(profileEx)}`);
       }
 
-      // ── Step 3: Mark invite codes as used ────────────────────────────────────
+      // ── Step 3: Redeem parent link code via SECURITY DEFINER RPC ────────────
+      // This atomically links parent↔student in parent_student_links AND students.parent_ids
+      if (data.role === 'parent' && data.parentLinkCode && authData?.user?.id) {
+        try {
+          const { error: redeemErr } = await supabase.rpc('redeem_parent_link_code', {
+            p_parent_id: authData.user.id,
+            p_link_code: data.parentLinkCode.trim(),
+          });
+          if (redeemErr) {
+            console.error('[SignUp] redeem_parent_link_code error:', redeemErr);
+            // Non-fatal: profile was created, link may have been set via profilePayload
+            toast.error(`Parent link: ${redeemErr.message}`);
+          } else {
+            console.log('[SignUp] Parent link code redeemed successfully.');
+          }
+        } catch (redeemEx: any) {
+          console.error('[SignUp] redeem_parent_link_code exception:', redeemEx);
+        }
+      }
+
+      // ── Step 4: Mark invite codes as used ────────────────────────────────────
       if (data.role === 'mentor' && linkedCounselorId && data.counselorInviteCode) {
         try {
           const { error: cmiErr } = await supabase

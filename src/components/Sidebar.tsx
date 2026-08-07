@@ -7,6 +7,7 @@ import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import GlobalSearch from '@/components/GlobalSearch';
 
 interface NavItem {
   label: string;
@@ -93,6 +94,13 @@ function SidebarContent({
           </button>
         )}
       </div>
+
+      {/* Global Search — only when expanded */}
+      {(!collapsed || mobile) && profile && (
+        <div className="mb-4 px-1">
+          <GlobalSearch />
+        </div>
+      )}
 
       {/* Role Badge */}
       {(!collapsed || mobile) && profile && (

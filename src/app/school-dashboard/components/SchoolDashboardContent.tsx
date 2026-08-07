@@ -189,33 +189,29 @@ export default function SchoolDashboardContent() {
     });
   }, [router, supabase, loadData]);
 
-  // ─── Fetch-or-create invite code (one per school) ─────────────────────────
+  // ─── Fetch-or-create invite code via API route ────────────────────────────
   const handleSchoolCode = async () => {
     if (!schoolId) return;
     setIsGeneratingCode(true);
     try {
-      // Check if a code already exists
-      const { data: existing } = await supabase
-        .from('school_invite_codes')
-        .select('invite_code')
-        .eq('school_id', schoolId)
-        .limit(1)
-        .maybeSingle();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error('Not authenticated'); setIsGeneratingCode(false); return; }
 
-      if (existing?.invite_code) {
-        toast.success(`Your school code: ${existing.invite_code}`, { duration: 5000 });
+      const res = await fetch('/api/invite-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'generate_school' }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to generate code');
       } else {
-        // Generate a new code only if none exists
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        const { error } = await supabase
-          .from('school_invite_codes')
-          .insert({ school_id: schoolId, invite_code: code });
-        if (error) throw error;
-        toast.success(`School code generated: ${code}`);
+        toast.success(`School code generated: ${json.code}`, { duration: 6000 });
         loadData(schoolId);
       }
-    } catch {
-      toast.error('Failed to get/generate code');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to get/generate code');
     }
     setIsGeneratingCode(false);
   };
