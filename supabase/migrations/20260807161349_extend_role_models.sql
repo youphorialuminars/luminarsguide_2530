@@ -14,7 +14,8 @@
 
 -- ── 1. Fix user_profiles.mentor_id: cast text → uuid ─────────────────────────
 -- The column was created as TEXT but should be UUID to match the FK target.
--- We drop the old column and re-add it as UUID (data is NULL-safe for existing rows).
+-- We must drop any RLS policies that reference mentor_id before altering its type,
+-- then recreate them after the ALTER completes.
 DO $$
 BEGIN
   -- Only migrate if the column is still text type
@@ -25,6 +26,16 @@ BEGIN
       AND column_name  = 'mentor_id'
       AND data_type    = 'text'
   ) THEN
+    -- Drop all policies on user_profiles that reference mentor_id
+    -- (PostgreSQL cannot alter a column type while policies depend on it)
+    DROP POLICY IF EXISTS "up_mentor_read_linked"          ON public.user_profiles;
+    DROP POLICY IF EXISTS "mentors_read_linked_profiles"   ON public.user_profiles;
+    DROP POLICY IF EXISTS "users_read_mentor_profiles"     ON public.user_profiles;
+    DROP POLICY IF EXISTS "counselors_read_linked_mentors" ON public.user_profiles;
+    DROP POLICY IF EXISTS "users_manage_own_profile"       ON public.user_profiles;
+    DROP POLICY IF EXISTS "users_insert_own_profile"       ON public.user_profiles;
+    DROP POLICY IF EXISTS "users_update_own_profile"       ON public.user_profiles;
+
     -- Cast existing values to uuid (NULL-safe: invalid/empty values become NULL)
     ALTER TABLE public.user_profiles
       ALTER COLUMN mentor_id TYPE uuid
@@ -32,6 +43,54 @@ BEGIN
         WHEN mentor_id IS NULL OR mentor_id = '' THEN NULL
         ELSE mentor_id::uuid
       END;
+
+    -- Recreate all dropped policies
+    CREATE POLICY "users_manage_own_profile"
+      ON public.user_profiles
+      FOR ALL
+      TO authenticated
+      USING (id = auth.uid())
+      WITH CHECK (id = auth.uid());
+
+    CREATE POLICY "users_read_mentor_profiles"
+      ON public.user_profiles
+      FOR SELECT
+      TO authenticated
+      USING (true);
+
+    CREATE POLICY "counselors_read_linked_mentors"
+      ON public.user_profiles
+      FOR SELECT
+      TO authenticated
+      USING (
+        id = auth.uid()
+        OR counselor_id = auth.uid()
+        OR role = 'mentor'
+      );
+
+    CREATE POLICY "users_insert_own_profile"
+      ON public.user_profiles
+      FOR INSERT
+      TO authenticated
+      WITH CHECK (id = auth.uid());
+
+    CREATE POLICY "users_update_own_profile"
+      ON public.user_profiles
+      FOR UPDATE
+      TO authenticated
+      USING (id = auth.uid())
+      WITH CHECK (id = auth.uid());
+
+    -- Recreate the mentor-read-linked policy (mentors can read profiles linked to them)
+    CREATE POLICY "up_mentor_read_linked"
+      ON public.user_profiles
+      FOR SELECT
+      TO authenticated
+      USING (
+        id = auth.uid()
+        OR mentor_id = auth.uid()
+      );
+
   END IF;
 END $$;
 
