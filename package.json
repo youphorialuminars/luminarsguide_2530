@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@dhiwise/component-tagger": "^1.0.16",
+    "@google/generative-ai": "0.24.1",
     "@heroicons/react": "^2.2.0",
     "@jitsi/react-sdk": "1.4.4",
     "@rocketnew/llm-sdk": "^1.1.0",
