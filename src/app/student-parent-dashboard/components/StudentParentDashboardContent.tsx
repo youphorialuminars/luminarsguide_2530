@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
 import StudentCalendar from './StudentCalendar';
+import SchoolEventsCalendar from '@/components/SchoolEventsCalendar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StudentProfile {
@@ -72,14 +73,6 @@ interface Reflection {
   team_dynamics: string;
   mentor_response: string | null;
   created_at: string;
-}
-
-interface ParentObservation {
-  id: string;
-  observation_text: string;
-  program_experience: string;
-  created_at: string;
-  submitted_by: string;
 }
 
 interface MentorFeedback {
@@ -210,10 +203,9 @@ export default function StudentParentDashboardContent() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [reflections, setReflections] = useState<Reflection[]>([]);
-  const [parentObservations, setParentObservations] = useState<ParentObservation[]>([]);
   const [mentorFeedbacks, setMentorFeedbacks] = useState<MentorFeedback[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback' | 'parent'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback'>('overview');
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -224,13 +216,6 @@ export default function StudentParentDashboardContent() {
   // Feedback form state
   const [feedbackForm, setFeedbackForm] = useState({ mentor_interaction_score: 5, active_listening_score: 5, teaching_clarity_score: 5, fruitful_comments: '' });
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
-
-  // Parent observation form
-  const [parentForm, setParentForm] = useState({ observation_text: '', program_experience: '' });
-  const [submittingParent, setSubmittingParent] = useState(false);
-
-  // Leaderboard data
-  const [leaderboard, setLeaderboard] = useState<{ name: string; count: number; userId: string }[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -255,14 +240,12 @@ export default function StudentParentDashboardContent() {
             attResult,
             meetResult,
             sessResult,
-            allObsResult,
           ] = await Promise.all([
             supabase.from('student_tasks').select('*').eq('student_id', student.id).order('created_at', { ascending: false }),
             supabase.from('surveys').select('*').eq('mentor_id', student.mentor_id).order('created_at', { ascending: false }),
             supabase.from('attendance').select('attendance_date, status').eq('student_id', student.id).order('attendance_date', { ascending: false }),
             supabase.from('meetings').select('*').eq('student_id', student.id).order('meeting_date', { ascending: false }),
             supabase.from('sessions').select('*').eq('student_id', student.id).order('created_at', { ascending: false }).limit(5),
-            supabase.from('parent_observations').select('submitted_by').eq('student_id', student.id),
           ]);
 
           const taskData = taskResult.data;
@@ -270,7 +253,6 @@ export default function StudentParentDashboardContent() {
           const attData = attResult.data;
           const meetData = meetResult.data;
           const sessData = sessResult.data;
-          const allObs = allObsResult.data;
 
           setTasks(taskData || []);
           setSurveys(surveyData || []);
@@ -278,30 +260,17 @@ export default function StudentParentDashboardContent() {
           setMeetings(meetData || []);
           setSessions(sessData || []);
 
-          if (allObs) {
-            const countMap = new Map<string, number>();
-            allObs.forEach((o) => { countMap.set(o.submitted_by, (countMap.get(o.submitted_by) || 0) + 1); });
-            const userIds = Array.from(countMap.keys());
-            if (userIds.length > 0) {
-              const { data: profiles } = await supabase.from('user_profiles').select('id, full_name').in('id', userIds);
-              const lb = (profiles || []).map((p) => ({ name: p.full_name || 'Parent', count: countMap.get(p.id) || 0, userId: p.id }));
-              lb.sort((a, b) => b.count - a.count);
-              setLeaderboard(lb);
-            }
-          }
+          // Parent leaderboard is strictly in Parent Hub — not shown in student view
         }
       }
 
-      const [reflResult, parentObsResult, mfResult] = await Promise.all([
+      const [reflResult, mfResult] = await Promise.all([
         supabase.from('student_reflections').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('parent_observations').select('*').eq('submitted_by', user.id).order('created_at', { ascending: false }),
         supabase.from('mentor_feedback').select('*').eq('submitted_by', user.id).order('created_at', { ascending: false }),
       ]);
       const reflData = reflResult.data;
-      const parentObs = parentObsResult.data;
       const mfData = mfResult.data;
       setReflections(reflData || []);
-      setParentObservations(parentObs || []);
       setMentorFeedbacks(mfData || []);
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -371,26 +340,6 @@ export default function StudentParentDashboardContent() {
       loadData();
     }
     setSubmittingFeedback(false);
-  };
-
-  const handleSubmitParentObservation = async () => {
-    if (!parentForm.observation_text.trim()) { toast.error('Please add your observation notes.'); return; }
-    if (!studentProfile) { toast.error('No student profile linked.'); return; }
-    setSubmittingParent(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error } = await supabase.from('parent_observations').insert({
-      student_id: studentProfile.id,
-      submitted_by: user.id,
-      observation_text: parentForm.observation_text,
-      program_experience: parentForm.program_experience,
-    });
-    if (error) { toast.error('Failed to submit observation.'); } else {
-      toast.success('Observation submitted!');
-      setParentForm({ observation_text: '', program_experience: '' });
-      loadData();
-    }
-    setSubmittingParent(false);
   };
 
   if (loading) {
@@ -708,6 +657,15 @@ export default function StudentParentDashboardContent() {
             </h2>
             <AttendanceCalendarView records={attendance} />
           </div>
+          {/* School Events Calendar — synced from School Dashboard */}
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="CalendarDaysIcon" size={18} className="text-violet-500" />
+              School Calendar
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700">Performance &amp; Holidays</span>
+            </h2>
+            <SchoolEventsCalendar />
+          </div>
         </div>
       )}
 
@@ -848,84 +806,6 @@ export default function StudentParentDashboardContent() {
                       <span>Clarity: {'⭐'.repeat(fb.teaching_clarity_score)}</span>
                     </div>
                     {fb.fruitful_comments && <p className="text-xs text-foreground/80 mt-1.5 leading-relaxed">{fb.fruitful_comments}</p>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── PARENT HUB TAB ───────────────────────────────────────────────────── */}
-      {activeTab === 'parent' && (
-        <div className="flex flex-col gap-6">
-          <div className="card-mystic p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="HomeIcon" size={18} className="text-primary" />
-              <h2 className="text-base font-700 text-foreground">Parent Observation</h2>
-            </div>
-            <div className="flex flex-col gap-4">
-              <div>
-                <label className="block text-sm font-600 text-foreground mb-1.5">Home Progress Notes <span className="text-negative">*</span></label>
-                <textarea className="input-mystic min-h-[100px] resize-none" placeholder="Share observations about your child's progress at home..." value={parentForm.observation_text} onChange={(e) => setParentForm((f) => ({ ...f, observation_text: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-sm font-600 text-foreground mb-1.5">Program Experience</label>
-                <textarea className="input-mystic min-h-[80px] resize-none" placeholder="How has the Luminar's Guide program impacted your child?" value={parentForm.program_experience} onChange={(e) => setParentForm((f) => ({ ...f, program_experience: e.target.value }))} />
-              </div>
-              <button className="btn-primary self-start" onClick={handleSubmitParentObservation} disabled={submittingParent}>
-                {submittingParent ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Submitting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Submit Observation</>}
-              </button>
-            </div>
-          </div>
-
-          <div className="card-mystic p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="TrophyIcon" size={18} className="text-amber-400" />
-              <h2 className="text-base font-700 text-foreground">Parent Engagement Leaderboard</h2>
-            </div>
-            {leaderboard.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Icon name="TrophyIcon" size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No parent observations yet. Be the first!</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {leaderboard.map((entry, idx) => (
-                  <div key={entry.userId} className={`flex items-center gap-3 p-3 rounded-xl border ${
-                    idx === 0 ? 'bg-amber-50 border-amber-200' : idx === 1 ? 'bg-slate-50 border-slate-200' : idx === 2 ? 'bg-orange-50 border-orange-200' : 'bg-secondary/40 border-border'
-                  }`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-800 flex-shrink-0 ${
-                      idx === 0 ? 'bg-amber-400 text-white' : idx === 1 ? 'bg-slate-400 text-white' : idx === 2 ? 'bg-orange-400 text-white' : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-600 text-foreground">{entry.name}</p>
-                      <p className="text-xs text-muted-foreground">{entry.count} observation{entry.count !== 1 ? 's' : ''}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(entry.count, 5) }).map((_, i) => (
-                        <div key={i} className="w-2 h-2 rounded-full bg-primary/60" />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {parentObservations.length > 0 && (
-            <div className="card-mystic p-5">
-              <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
-                <Icon name="ClockIcon" size={18} className="text-primary" />
-                My Past Observations
-              </h2>
-              <div className="flex flex-col gap-3">
-                {parentObservations.slice(0, 3).map((obs) => (
-                  <div key={obs.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
-                    <p className="text-xs text-muted-foreground mb-1.5">{formatDate(obs.created_at)}</p>
-                    <p className="text-sm text-foreground/80 leading-relaxed line-clamp-3">{obs.observation_text}</p>
                   </div>
                 ))}
               </div>

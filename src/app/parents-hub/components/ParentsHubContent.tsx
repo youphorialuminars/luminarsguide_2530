@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
 import Link from 'next/link';
+import SchoolEventsCalendar from '@/components/SchoolEventsCalendar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ParentProfile {
@@ -458,6 +459,16 @@ export default function ParentsHubContent() {
               Attendance Calendar
             </h2>
             <AttendanceCalendarView records={attendance} />
+          </div>
+
+          {/* School Events Calendar */}
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="CalendarDaysIcon" size={18} className="text-violet-500" />
+              School Calendar
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700">Performance &amp; Holidays</span>
+            </h2>
+            <SchoolEventsCalendar />
           </div>
 
           {/* Report Card — Mentor's Feedback */}
