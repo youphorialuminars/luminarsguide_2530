@@ -4,12 +4,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
-import { mockStudents, mockSessions } from '@/lib/mockData';
-import type { Session } from '@/lib/mockData';
 import AnalysisCards from './AnalysisCards';
 import SessionHistoryTable from './SessionHistoryTable';
 import AttendanceCalendar from './AttendanceCalendar';
 import { createClient } from '@/lib/supabase/client';
+import type { Session } from '@/lib/mockData';
 
 const ScoreBarChart = dynamic(() => import('./ScoreBarChart'), { ssr: false });
 const TopicPieChart = dynamic(() => import('./TopicPieChart'), { ssr: false });
@@ -37,7 +36,6 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      // Find the student's user_id from students table
       const { data: studentRow } = await supabase
         .from('students')
         .select('student_user_id')
@@ -101,7 +99,6 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
               </span>
               <span className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</span>
             </div>
-
             {r.learned_this_week && (
               <div>
                 <p className="text-xs font-700 text-primary mb-1">What I learned this week</p>
@@ -126,7 +123,6 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
                 <p className="text-sm text-amber-900 leading-relaxed">{r.peer_appreciation}</p>
               </div>
             )}
-
             {r.mentor_response ? (
               <div className="p-3 rounded-xl bg-primary/5 border border-primary/20">
                 <p className="text-xs font-700 text-primary mb-1">Your Response</p>
@@ -144,21 +140,14 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
                       onChange={(e) => setResponseText(e.target.value)}
                     />
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => handleRespond(r.id)}
-                        disabled={submittingResponse}
-                        className="btn-primary text-xs py-1.5 px-3"
-                      >
+                      <button onClick={() => handleRespond(r.id)} disabled={submittingResponse} className="btn-primary text-xs py-1.5 px-3">
                         {submittingResponse ? 'Sending...' : 'Send Response'}
                       </button>
                       <button onClick={() => { setRespondingId(null); setResponseText(''); }} className="btn-secondary text-xs py-1.5 px-3">Cancel</button>
                     </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setRespondingId(r.id)}
-                    className="btn-ghost text-xs"
-                  >
+                  <button onClick={() => setRespondingId(r.id)} className="btn-ghost text-xs">
                     <Icon name="ChatBubbleLeftIcon" size={13} /> Respond
                   </button>
                 )}
@@ -171,19 +160,125 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
   );
 }
 
+// ─── DB Session shape (from public.sessions) ──────────────────────────────────
+interface DbSession {
+  id: string;
+  student_id: string;
+  topic: string;
+  score: number;
+  session_date: string;
+  strengths: string[];
+  weaknesses: string[];
+  approach: string[];
+  tasks: string[];
+  model: string;
+  obs_offline_class: string;
+  obs_online_task: string;
+  obs_group_task: string;
+  obs_mentor_call: string;
+  obs_comprehensive: string;
+  created_at: string;
+}
+
+// ─── DB Student shape ─────────────────────────────────────────────────────────
+interface DbStudent {
+  id: string;
+  name: string;
+  grade: string;
+  age: number | null;
+  gender: string | null;
+  avg_score: number;
+  sessions: number;
+  trend: string;
+  topics: string[];
+  notes: string | null;
+}
+
+const AVATAR_COLORS = ['#7C6FCD', '#5BAD8F', '#D97BB6', '#5B8FD9', '#E8A020', '#C97B7B', '#7BA8C9', '#A594E8', '#8FBD8F', '#D9A05B'];
+
+function colorForId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string): string {
+  return name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
+}
+
+// Map a DbSession to the legacy Session shape used by child components
+function mapDbSessionToLegacy(s: DbSession): Session {
+  return {
+    id: s.id,
+    studentId: s.student_id,
+    date: s.session_date,
+    topic: s.topic,
+    score: s.score,
+    observation: [s.obs_offline_class, s.obs_online_task, s.obs_group_task, s.obs_mentor_call, s.obs_comprehensive].filter(Boolean).join('\n\n'),
+    observations: {
+      offlineClass: s.obs_offline_class || '',
+      onlineTask: s.obs_online_task || '',
+      groupTask: s.obs_group_task || '',
+      mentorCall: s.obs_mentor_call || '',
+      comprehensive: s.obs_comprehensive || '',
+    },
+    analysis: {
+      strengths: Array.isArray(s.strengths) ? s.strengths : [],
+      weaknesses: Array.isArray(s.weaknesses) ? s.weaknesses : [],
+      approachRequired: Array.isArray(s.approach) ? s.approach : [],
+      taskList: Array.isArray(s.tasks) ? s.tasks : [],
+    },
+    modelUsed: s.model || 'Gemini',
+    cacheHit: false,
+  };
+}
+
 export default function StudentDetailView() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const studentId = searchParams.get('studentId') || 'student-001';
+  const supabase = createClient();
+
+  const studentId = searchParams.get('studentId') || '';
   const isNew = searchParams.get('newSession') === 'true';
 
-  const student = mockStudents.find((s) => s.id === studentId) || mockStudents[0];
-  const studentSessions = mockSessions.filter((s) => s.studentId === student.id);
-
-  const [activeSession, setActiveSession] = useState<Session>(
-    studentSessions[0] || mockSessions[0]
-  );
+  const [dbStudent, setDbStudent] = useState<DbStudent | null>(null);
+  const [dbSessions, setDbSessions] = useState<DbSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance' | 'reflections'>('analysis');
+
+  // Load student + sessions from Supabase
+  useEffect(() => {
+    if (!studentId) { setLoading(false); return; }
+
+    const load = async () => {
+      setLoading(true);
+      const [studentResult, sessionsResult] = await Promise.all([
+        supabase
+          .from('students')
+          .select('id, name, grade, age, gender, avg_score, sessions, trend, topics, notes')
+          .eq('id', studentId)
+          .maybeSingle(),
+        supabase
+          .from('sessions')
+          .select('id, student_id, topic, score, session_date, strengths, weaknesses, approach, tasks, model, obs_offline_class, obs_online_task, obs_group_task, obs_mentor_call, obs_comprehensive, created_at')
+          .eq('student_id', studentId)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (studentResult.data) setDbStudent(studentResult.data);
+      const sessions = sessionsResult.data || [];
+      setDbSessions(sessions);
+      if (sessions.length > 0) {
+        setActiveSession(mapDbSessionToLegacy(sessions[0]));
+      }
+      setLoading(false);
+    };
+    load();
+  }, [studentId]);
+
+  // Derived legacy sessions list for child components
+  const studentSessions = useMemo(() => dbSessions.map(mapDbSessionToLegacy), [dbSessions]);
 
   const barChartData = useMemo(() => {
     return [...studentSessions]
@@ -214,17 +309,16 @@ export default function StudentDetailView() {
     }));
   }, [studentSessions]);
 
-  const scoreDelta =
-    studentSessions.length >= 2
-      ? studentSessions[0].score - studentSessions[studentSessions.length - 1].score
-      : 0;
+  const scoreDelta = studentSessions.length >= 2
+    ? studentSessions[0].score - studentSessions[studentSessions.length - 1].score
+    : 0;
 
   const trendConfig = {
     up: { icon: 'ArrowTrendingUpIcon', color: 'text-positive', bg: 'bg-positive/10', label: 'Improving' },
     down: { icon: 'ArrowTrendingDownIcon', color: 'text-negative', bg: 'bg-negative/10', label: 'Declining' },
     stable: { icon: 'MinusIcon', color: 'text-info', bg: 'bg-info/10', label: 'Stable' },
   };
-  const trend = trendConfig[student.scoreTrend];
+  const trend = trendConfig[(dbStudent?.trend as 'up' | 'down' | 'stable') || 'stable'];
 
   const tabs = [
     { id: 'analysis' as const, label: 'Current Analysis', icon: 'SparklesIcon' },
@@ -235,10 +329,41 @@ export default function StudentDetailView() {
   ];
 
   const formatDate = (dateStr: string) => {
+    if (!dateStr) return '—';
     const parts = dateStr.split('-');
+    if (parts.length < 3) return dateStr;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${months[parseInt(parts[1]) - 1]} ${parseInt(parts[2])}, ${parts[0]}`;
   };
+
+  // ─── Loading state ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+          <Icon name="ArrowPathIcon" size={28} className="text-primary animate-spin" />
+        </div>
+        <p className="text-sm text-muted-foreground">Loading student data...</p>
+      </div>
+    );
+  }
+
+  // ─── No student found ─────────────────────────────────────────────────────
+  if (!dbStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <Icon name="ExclamationCircleIcon" size={40} className="text-muted-foreground opacity-40" />
+        <p className="font-600 text-foreground">Student not found</p>
+        <p className="text-sm text-muted-foreground">This student may have been removed or you don&apos;t have access.</p>
+        <button className="btn-primary mt-2" onClick={() => router.push('/student-dashboard')}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  const avatarColor = colorForId(dbStudent.id);
+  const avatarInitials = getInitials(dbStudent.name);
 
   return (
     <div className="animate-fade-in">
@@ -256,17 +381,16 @@ export default function StudentDetailView() {
             <div className="flex items-center gap-3">
               <div
                 className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-700 text-sm flex-shrink-0 shadow-sm"
-                style={{ backgroundColor: student.avatarColor }}
+                style={{ backgroundColor: avatarColor }}
               >
-                {student.avatarInitials}
+                {avatarInitials}
               </div>
               <div>
-                <h1 className="text-2xl font-700 text-foreground leading-tight">{student.name}</h1>
+                <h1 className="text-2xl font-700 text-foreground leading-tight">{dbStudent.name}</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {student.grade}
-                  {student.age ? ` · Age ${student.age}` : ''}
-                  {student.gender ? ` · ${student.gender}` : ''}
-                  {` · Enrolled ${formatDate(student.enrolledDate)}`}
+                  {dbStudent.grade}
+                  {dbStudent.age ? ` · Age ${dbStudent.age}` : ''}
+                  {dbStudent.gender ? ` · ${dbStudent.gender}` : ''}
                 </p>
               </div>
             </div>
@@ -277,7 +401,7 @@ export default function StudentDetailView() {
               </div>
               <button
                 className="btn-primary text-sm py-2"
-                onClick={() => router.push(`/new-session?studentId=${student.id}`)}
+                onClick={() => router.push(`/new-session?studentId=${dbStudent.id}`)}
               >
                 <Icon name="PlusCircleIcon" size={16} />
                 New Session
@@ -290,42 +414,10 @@ export default function StudentDetailView() {
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
-          {
-            id: 'stat-sessions',
-            label: 'Total Sessions',
-            value: studentSessions.length,
-            suffix: '',
-            icon: 'ClipboardDocumentListIcon',
-            color: 'text-primary',
-            bg: 'bg-primary/10',
-          },
-          {
-            id: 'stat-avg',
-            label: 'Average Score',
-            value: student.averageScore,
-            suffix: '',
-            icon: 'ChartBarIcon',
-            color: 'text-positive',
-            bg: 'bg-positive/10',
-          },
-          {
-            id: 'stat-topics',
-            label: 'Pillars Covered',
-            value: pieChartData.length,
-            suffix: '',
-            icon: 'BookOpenIcon',
-            color: 'text-info',
-            bg: 'bg-info/10',
-          },
-          {
-            id: 'stat-delta',
-            label: 'Score Change',
-            value: scoreDelta >= 0 ? `+${scoreDelta}` : `${scoreDelta}`,
-            suffix: ' pts',
-            icon: scoreDelta >= 0 ? 'ArrowTrendingUpIcon' : 'ArrowTrendingDownIcon',
-            color: scoreDelta >= 0 ? 'text-positive' : 'text-negative',
-            bg: scoreDelta >= 0 ? 'bg-positive/10' : 'bg-negative/10',
-          },
+          { id: 'stat-sessions', label: 'Total Sessions', value: studentSessions.length, suffix: '', icon: 'ClipboardDocumentListIcon', color: 'text-primary', bg: 'bg-primary/10' },
+          { id: 'stat-avg', label: 'Average Score', value: dbStudent.avg_score || 0, suffix: '', icon: 'ChartBarIcon', color: 'text-positive', bg: 'bg-positive/10' },
+          { id: 'stat-topics', label: 'Pillars Covered', value: pieChartData.length, suffix: '', icon: 'BookOpenIcon', color: 'text-info', bg: 'bg-info/10' },
+          { id: 'stat-delta', label: 'Score Change', value: scoreDelta >= 0 ? `+${scoreDelta}` : `${scoreDelta}`, suffix: ' pts', icon: scoreDelta >= 0 ? 'ArrowTrendingUpIcon' : 'ArrowTrendingDownIcon', color: scoreDelta >= 0 ? 'text-positive' : 'text-negative', bg: scoreDelta >= 0 ? 'bg-positive/10' : 'bg-negative/10' },
         ].map((stat) => (
           <div key={stat.id} className="card-elevated p-4 flex items-center gap-3">
             <div className={`w-9 h-9 rounded-xl ${stat.bg} flex items-center justify-center flex-shrink-0`}>
@@ -355,7 +447,7 @@ export default function StudentDetailView() {
       )}
 
       {/* Active Session Context */}
-      {activeTab !== 'attendance' && (
+      {activeSession && activeTab !== 'attendance' && (
         <div className="card-elevated p-4 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -377,12 +469,19 @@ export default function StudentDetailView() {
               Score: {activeSession.score}
             </span>
             <span className="text-xs text-muted-foreground font-500">{activeSession.modelUsed}</span>
-            {activeSession.cacheHit && (
-              <span className="status-badge badge-warning text-xs">
-                <Icon name="BoltIcon" size={11} /> Cached
-              </span>
-            )}
           </div>
+        </div>
+      )}
+
+      {/* No sessions yet */}
+      {studentSessions.length === 0 && (
+        <div className="card-elevated p-10 text-center mb-5">
+          <Icon name="ClipboardDocumentListIcon" size={36} className="text-muted-foreground mx-auto mb-3 opacity-30" />
+          <p className="font-600 text-foreground">No sessions yet</p>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">Start a new session to generate AI-powered analysis for this student.</p>
+          <button className="btn-primary" onClick={() => router.push(`/new-session?studentId=${dbStudent.id}`)}>
+            <Icon name="PlusCircleIcon" size={16} /> Start First Session
+          </button>
         </div>
       )}
 
@@ -405,7 +504,7 @@ export default function StudentDetailView() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'analysis' && (
+      {activeTab === 'analysis' && activeSession && (
         <div className="animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-700 text-foreground">AI-Generated Analysis</h2>
@@ -416,7 +515,7 @@ export default function StudentDetailView() {
           </div>
 
           {/* Observation Summary */}
-          {activeSession.observations ? (
+          {activeSession.observations && (
             <div className="card-elevated p-4 mb-4">
               <p className="section-label mb-3">Mentor Observations (5 Areas)</p>
               <div className="flex flex-col gap-3">
@@ -443,13 +542,6 @@ export default function StudentDetailView() {
                 })}
               </div>
             </div>
-          ) : (
-            <div className="card-elevated p-4 mb-4 border-l-4 border-l-muted-foreground/30">
-              <p className="section-label mb-2">Mentor Observation</p>
-              <p className="text-sm text-foreground/80 leading-relaxed italic">
-                &ldquo;{activeSession.observation}&rdquo;
-              </p>
-            </div>
           )}
 
           <AnalysisCards analysis={activeSession.analysis} isNew={isNew} />
@@ -460,25 +552,13 @@ export default function StudentDetailView() {
         <div className="animate-fade-in">
           <h2 className="text-lg font-700 text-foreground mb-4">Progress Visualizations</h2>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            {/* Bar Chart */}
             <div className="card-elevated p-5">
               <div className="flex items-center justify-between mb-1">
                 <div>
                   <h3 className="font-700 text-foreground text-base">Score Progression</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">Test scores across all sessions</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="w-3 h-0.5 bg-accent rounded-full" />
-                    Average
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="w-3 h-3 rounded bg-primary/60" />
-                    Score
-                  </div>
-                </div>
               </div>
-
               {barChartData.length > 0 ? (
                 <ScoreBarChart data={barChartData} />
               ) : (
@@ -486,7 +566,6 @@ export default function StudentDetailView() {
                   <p className="text-sm text-muted-foreground">No session data yet</p>
                 </div>
               )}
-
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                 <div className="text-center">
                   <p className="tabular-nums text-lg font-700 text-foreground">
@@ -495,9 +574,7 @@ export default function StudentDetailView() {
                   <p className="text-xs text-muted-foreground">Lowest</p>
                 </div>
                 <div className="text-center">
-                  <p className="tabular-nums text-lg font-700 text-primary">
-                    {student.averageScore || '—'}
-                  </p>
+                  <p className="tabular-nums text-lg font-700 text-primary">{dbStudent.avg_score || '—'}</p>
                   <p className="text-xs text-muted-foreground">Average</p>
                 </div>
                 <div className="text-center">
@@ -515,13 +592,11 @@ export default function StudentDetailView() {
               </div>
             </div>
 
-            {/* Pie Chart */}
             <div className="card-elevated p-5">
               <div className="mb-1">
                 <h3 className="font-700 text-foreground text-base">Pillar Distribution</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Sessions by core educational pillar</p>
               </div>
-
               {pieChartData.length > 0 ? (
                 <TopicPieChart data={pieChartData} />
               ) : (
@@ -529,7 +604,6 @@ export default function StudentDetailView() {
                   <p className="text-sm text-muted-foreground">No pillar data yet</p>
                 </div>
               )}
-
               <div className="mt-3 pt-3 border-t border-border">
                 <p className="section-label mb-2">Pillar Performance Summary</p>
                 <div className="flex flex-col gap-1.5">
@@ -565,7 +639,7 @@ export default function StudentDetailView() {
           </div>
           <SessionHistoryTable
             sessions={studentSessions}
-            activeSessionId={activeSession.id}
+            activeSessionId={activeSession?.id || ''}
             onSelectSession={(session) => {
               setActiveSession(session);
               setActiveTab('analysis');
@@ -580,7 +654,7 @@ export default function StudentDetailView() {
             <h2 className="text-lg font-700 text-foreground">Attendance Tracker</h2>
             <p className="text-sm text-muted-foreground">Click any date to mark attendance</p>
           </div>
-          <AttendanceCalendar studentId={student.id} />
+          <AttendanceCalendar studentId={dbStudent.id} />
         </div>
       )}
 
@@ -589,12 +663,12 @@ export default function StudentDetailView() {
       )}
 
       {/* Student Notes */}
-      {student.notes && (
+      {dbStudent.notes && (
         <div className="card-elevated p-4 mt-5 flex items-start gap-3">
           <Icon name="PencilSquareIcon" size={17} className="text-muted-foreground mt-0.5 flex-shrink-0" />
           <div>
             <p className="section-label mb-1">Mentor Notes</p>
-            <p className="text-sm text-foreground/80 leading-relaxed">{student.notes}</p>
+            <p className="text-sm text-foreground/80 leading-relaxed">{dbStudent.notes}</p>
           </div>
         </div>
       )}

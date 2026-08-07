@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import type { Gender } from '@/lib/mockData';
-import { mockSessions } from '@/lib/mockData';
 import StudentCard from './StudentCard';
 import DashboardStatsStrip from './DashboardStatsStrip';
 import AddStudentModal from './AddStudentModal';
@@ -310,11 +309,7 @@ export default function StudentDashboardContent() {
   const [peerStats, setPeerStats] = useState<PeerStats | null>(null);
   const [avgFeedbackScore, setAvgFeedbackScore] = useState(0);
   const [reflectionsLoading, setReflectionsLoading] = useState(false);
-
-  const sessionsThisWeek = useMemo(() => {
-    const weekAgo = new Date('2026-07-29');
-    return mockSessions.filter((s) => new Date(s.date) >= weekAgo).length;
-  }, []);
+  const [sessionsThisWeek, setSessionsThisWeek] = useState(0);
 
   const avgScore = useMemo(() => {
     if (students.length === 0) return 0;
@@ -435,6 +430,17 @@ export default function StudentDashboardContent() {
     if (rawStudents.length > 0) {
       loadParentEngagement(rawStudents.map((s) => s.id));
     }
+
+    // Load sessions this week from Supabase
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekAgoStr = weekAgo.toISOString().split('T')[0];
+    const { data: sessData } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('mentor_id', user.id)
+      .gte('session_date', weekAgoStr);
+    setSessionsThisWeek(sessData?.length || 0);
 
     setStudentsLoading(false);
   }, [supabase, loadParentEngagement]);
