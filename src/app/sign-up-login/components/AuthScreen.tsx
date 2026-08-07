@@ -13,46 +13,6 @@ import { createClient } from '@/lib/supabase/client';
 type AuthTab = 'login' | 'signup' | 'reset';
 type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school';
 
-// Demo credentials for each role
-const DEMO_CREDENTIALS = [
-  {
-    role: 'Mentor',
-    email: 'demo.mentor@luminarsguide.com',
-    password: 'Demo@Mentor2025',
-    icon: 'AcademicCapIcon',
-    color: 'text-violet-400',
-    bg: 'bg-violet-500/10 border-violet-500/20 hover:border-violet-500/50',
-    activeBg: 'bg-violet-500/15 border-violet-500/50',
-  },
-  {
-    role: 'Student',
-    email: 'demo.student@luminarsguide.com',
-    password: 'Demo@Student2025',
-    icon: 'UserIcon',
-    color: 'text-sky-400',
-    bg: 'bg-sky-500/10 border-sky-500/20 hover:border-sky-500/50',
-    activeBg: 'bg-sky-500/15 border-sky-500/50',
-  },
-  {
-    role: 'Counselor',
-    email: 'demo.counselor@luminarsguide.com',
-    password: 'Demo@Counselor2025',
-    icon: 'ShieldCheckIcon',
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/50',
-    activeBg: 'bg-emerald-500/15 border-emerald-500/50',
-  },
-  {
-    role: 'School',
-    email: 'demo.school@luminarsguide.com',
-    password: 'Demo@School2025',
-    icon: 'BuildingLibraryIcon',
-    color: 'text-amber-400',
-    bg: 'bg-amber-500/10 border-amber-500/20 hover:border-amber-500/50',
-    activeBg: 'bg-amber-500/15 border-amber-500/50',
-  },
-];
-
 // ─── Visible Error Banner ──────────────────────────────────────────────────────
 interface SupabaseErrorBannerProps {
   message: string;
@@ -167,87 +127,6 @@ function SystemHealthCheck() {
   );
 }
 
-interface DemoCredentialsProps {
-  onSelect: (email: string, password: string) => void;
-}
-
-function DemoCredentials({ onSelect }: DemoCredentialsProps) {
-  const [selected, setSelected] = React.useState<string | null>(null);
-  const [copied, setCopied] = React.useState<string | null>(null);
-
-  const handleSelect = (cred: typeof DEMO_CREDENTIALS[0]) => {
-    setSelected(cred.email);
-    onSelect(cred.email, cred.password);
-    toast.success(`Demo credentials filled for ${cred.role}`);
-  };
-
-  const handleCopy = (e: React.MouseEvent, text: string, key: string) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    });
-  };
-
-  return (
-    <div className="mb-5">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs font-600 text-muted-foreground px-2 flex items-center gap-1.5">
-          <Icon name="BeakerIcon" size={12} />
-          Try a Demo Account
-        </span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {DEMO_CREDENTIALS.map((cred) => (
-          <button
-            key={cred.email}
-            type="button"
-            onClick={() => handleSelect(cred)}
-            className={`group flex flex-col gap-1.5 p-2.5 rounded-xl border-2 transition-all text-left ${
-              selected === cred.email ? cred.activeBg : cred.bg
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Icon name={cred.icon as any} size={13} className={cred.color} />
-                <span className="text-xs font-700 text-foreground">{cred.role}</span>
-              </div>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => handleCopy(e, `${cred.email}\n${cred.password}`, cred.role)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCopy(e as any, `${cred.email}\n${cred.password}`, cred.role)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title="Copy credentials"
-              >
-                <Icon
-                  name={copied === cred.role ? 'CheckIcon' : 'ClipboardDocumentIcon'}
-                  size={12}
-                  className={copied === cred.role ? 'text-positive' : 'text-muted-foreground'}
-                />
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground font-mono truncate leading-tight">
-              {cred.email}
-            </p>
-            {selected === cred.email && (
-              <span className="text-[10px] font-600 text-positive flex items-center gap-1">
-                <Icon name="CheckCircleIcon" size={10} />
-                Filled
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-      <p className="text-[10px] text-muted-foreground text-center mt-2 leading-relaxed">
-        Click any role to auto-fill credentials · For exploration only
-      </p>
-    </div>
-  );
-}
-
 interface LoginForm {
   email: string;
   password: string;
@@ -286,11 +165,6 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
     setError,
     setValue,
   } = useForm<LoginForm>();
-
-  const handleDemoSelect = (email: string, password: string) => {
-    setValue('email', email);
-    setValue('password', password);
-  };
 
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
@@ -381,7 +255,6 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         />
       )}
 
-      <DemoCredentials onSelect={handleDemoSelect} />
       <div>
         <label className="block text-sm font-600 text-foreground mb-1.5">
           Email Address <span className="text-negative">*</span>
@@ -476,10 +349,17 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   );
 }
 
+// Invite code format: 3 uppercase letters, hyphen, 6 digits (e.g. ABC-123456)
+const INVITE_CODE_REGEX = /^[A-Z]{3}-\d{6}$/;
+
+function validateInviteCode(val: string): boolean {
+  return INVITE_CODE_REGEX.test(val.trim().toUpperCase());
+}
+
 function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
   const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
   const supabase = createClient();
 
@@ -498,13 +378,14 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
     setIsLoading(true);
     setSupabaseError(null);
     try {
-      // For student: validate mentor invite code and resolve mentor UUID
+      // For student: validate mentor invite code (LLL-DDDDDD) and resolve mentor UUID
       let linkedStudentId: string | null = null;
       let linkedMentorId: string | null = null;
 
       if (data.role === 'student') {
-        if (!data.inviteCode || data.inviteCode.trim().length !== 8) {
-          setError('inviteCode', { message: 'Please enter a valid 8-character invite code' });
+        const code = data.inviteCode?.trim().toUpperCase() || '';
+        if (!code || !validateInviteCode(code)) {
+          setError('inviteCode', { message: 'Please enter a valid invite code in format ABC-123456' });
           setIsLoading(false);
           return;
         }
@@ -512,7 +393,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           const { data: mentorRow, error: mentorLookupErr } = await supabase
             .from('user_profiles')
             .select('id, role, mentor_code')
-            .eq('mentor_code', data.inviteCode.trim().toUpperCase())
+            .eq('mentor_code', code)
             .eq('role', 'mentor')
             .maybeSingle();
 
@@ -537,11 +418,12 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
       }
 
-      // For parent: validate parent link code and resolve student UUID
+      // For parent: validate parent link code (LLL-DDDDDD) and resolve student UUID
       let parentLinkedStudentId: string | null = null;
       if (data.role === 'parent') {
-        if (!data.parentLinkCode || data.parentLinkCode.trim().length !== 6) {
-          setError('parentLinkCode', { message: 'Please enter the 6-digit Parent Link Code from your child.' });
+        const code = data.parentLinkCode?.trim().toUpperCase() || '';
+        if (!code || !validateInviteCode(code)) {
+          setError('parentLinkCode', { message: 'Please enter a valid Parent Link Code in format ABC-123456' });
           setIsLoading(false);
           return;
         }
@@ -549,7 +431,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           const { data: studentRow, error: plcErr } = await supabase
             .from('students')
             .select('id, parent_link_code, mentor_id')
-            .eq('parent_link_code', data.parentLinkCode.trim())
+            .eq('parent_link_code', code)
             .maybeSingle();
 
           if (plcErr) {
@@ -573,14 +455,20 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
       }
 
-      // For mentor with counselor invite code: validate it and resolve counselor UUID
+      // For mentor with counselor invite code: validate (LLL-DDDDDD) and resolve counselor UUID
       let linkedCounselorId: string | null = null;
-      if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length === 6) {
+      if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length > 0) {
+        const code = data.counselorInviteCode.trim().toUpperCase();
+        if (!validateInviteCode(code)) {
+          setError('counselorInviteCode', { message: 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)' });
+          setIsLoading(false);
+          return;
+        }
         try {
           const { data: codeRow, error: codeErr } = await supabase
             .from('counselor_mentor_invites')
             .select('id, counselor_id, used_by')
-            .eq('invite_code', data.counselorInviteCode.trim())
+            .eq('invite_code', code)
             .maybeSingle();
 
           if (codeErr) {
@@ -609,15 +497,21 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
       }
 
-      // For mentor/student with school invite code: validate it and resolve school UUID
+      // For mentor/student with school invite code: validate (LLL-DDDDDD) and resolve school UUID
       let linkedSchoolId: string | null = null;
       const schoolCodeRoles: UserRole[] = ['mentor', 'student'];
-      if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length === 6) {
+      if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length > 0) {
+        const code = data.schoolInviteCode.trim().toUpperCase();
+        if (!validateInviteCode(code)) {
+          setError('schoolInviteCode', { message: 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)' });
+          setIsLoading(false);
+          return;
+        }
         try {
           const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
             .from('school_invite_codes')
             .select('id, school_id, used_by')
-            .eq('invite_code', data.schoolInviteCode.trim())
+            .eq('invite_code', code)
             .maybeSingle();
 
           if (schoolCodeErr) {
@@ -646,11 +540,16 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         }
       }
 
-      // Generate mentor_code for mentors (8-char alphanumeric, uppercase)
+      // Generate mentor_code for mentors in LLL-DDDDDD format
+      const generateMentorCode = (): string => {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
+        const digits = String(Math.floor(Math.random() * 900000) + 100000);
+        return `${prefix}-${digits}`;
+      };
+
       const mentorCode =
-        data.role === 'mentor'
-          ? Math.random().toString(36).substring(2, 10).toUpperCase()
-          : null;
+        data.role === 'mentor' ? generateMentorCode() : null;
 
       const roleValue = data.role;
 
@@ -713,9 +612,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         return;
       }
 
-      // ── Step 2: Explicit INSERT into user_profiles (fallback trigger) ─────────
-      // This runs immediately after auth.signUp to guarantee the profile row exists,
-      // even if the DB trigger is missing or hasn't fired yet.
+      // ── Step 2: Explicit INSERT into user_profiles ────────────────────────────
       const profilePayload: Record<string, any> = {
         id: authData.user.id,
         email: data.email,
@@ -736,12 +633,10 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
         if (profileInsertError) {
           console.error('[SignUp] user_profiles INSERT/UPSERT error:', profileInsertError);
-          // Surface the exact error — this is the most critical diagnostic
           setSupabaseError({
             message: `Profile INSERT failed: ${profileInsertError.message} | Details: ${profileInsertError.details || 'none'} | Hint: ${profileInsertError.hint || 'none'}`,
             code: profileInsertError.code,
           });
-          // Don't block the user — auth succeeded, profile may still be created by trigger
           toast.error(`⚠️ Profile write error (${profileInsertError.code}): ${profileInsertError.message}`);
         } else {
           console.log('[SignUp] user_profiles INSERT/UPSERT succeeded for user:', authData.user.id);
@@ -753,16 +648,14 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       }
 
       // ── Step 3: Redeem parent link code via SECURITY DEFINER RPC ────────────
-      // This atomically links parent↔student in parent_student_links AND students.parent_ids
       if (data.role === 'parent' && data.parentLinkCode && authData?.user?.id) {
         try {
           const { error: redeemErr } = await supabase.rpc('redeem_parent_link_code', {
             p_parent_id: authData.user.id,
-            p_link_code: data.parentLinkCode.trim(),
+            p_link_code: data.parentLinkCode.trim().toUpperCase(),
           });
           if (redeemErr) {
             console.error('[SignUp] redeem_parent_link_code error:', redeemErr);
-            // Non-fatal: profile was created, link may have been set via profilePayload
             toast.error(`Parent link: ${redeemErr.message}`);
           } else {
             console.log('[SignUp] Parent link code redeemed successfully.');
@@ -778,10 +671,9 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           const { error: cmiErr } = await supabase
             .from('counselor_mentor_invites')
             .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
-            .eq('invite_code', data.counselorInviteCode.trim());
+            .eq('invite_code', data.counselorInviteCode.trim().toUpperCase());
           if (cmiErr) {
             console.error('[SignUp] counselor_mentor_invites update error:', cmiErr);
-            setSupabaseError({ message: `Counselor invite mark-used failed: ${cmiErr.message}`, code: cmiErr.code });
           }
         } catch (cmiEx: any) {
           console.error('[SignUp] counselor_mentor_invites update exception:', cmiEx);
@@ -793,19 +685,54 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           const { error: sciErr } = await supabase
             .from('school_invite_codes')
             .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
-            .eq('invite_code', data.schoolInviteCode.trim());
+            .eq('invite_code', data.schoolInviteCode.trim().toUpperCase());
           if (sciErr) {
             console.error('[SignUp] school_invite_codes update error:', sciErr);
-            setSupabaseError({ message: `School invite mark-used failed: ${sciErr.message}`, code: sciErr.code });
           }
         } catch (sciEx: any) {
           console.error('[SignUp] school_invite_codes update exception:', sciEx);
         }
       }
 
-      setIsLoading(false);
-      setSuccess(true);
-      toast.success('Account created! You can now sign in.');
+      // ── Step 5: Auto sign-in and redirect to role-specific dashboard ──────────
+      try {
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        });
+
+        if (signInErr) {
+          console.error('[SignUp] Auto sign-in failed:', signInErr);
+          // Auth succeeded but auto sign-in failed — fall back to manual sign-in
+          toast.success('Account created! Please sign in to continue.');
+          setIsLoading(false);
+          onSwitchTab('login');
+          return;
+        }
+
+        // Set role cookie
+        document.cookie = `luminar_role=${roleValue}; path=/; max-age=604800; SameSite=None; Secure`;
+        toast.success(`Welcome, ${data.fullName}! Your account is ready.`);
+
+        // Redirect to role-specific dashboard
+        if (roleValue === 'student_parent' || roleValue === 'student') {
+          router.push('/student-parent-dashboard');
+        } else if (roleValue === 'parent') {
+          router.push('/parents-hub');
+        } else if (roleValue === 'counselor') {
+          router.push('/counselor-dashboard');
+        } else if (roleValue === 'school') {
+          router.push('/school-dashboard');
+        } else {
+          router.push('/student-dashboard');
+        }
+      } catch (signInEx: any) {
+        console.error('[SignUp] Auto sign-in exception:', signInEx);
+        toast.success('Account created! Please sign in to continue.');
+        setIsLoading(false);
+        onSwitchTab('login');
+      }
+
     } catch (err: any) {
       console.error('[SignUp] Outer catch exception:', err);
       setSupabaseError({ message: err?.message || 'Sign up failed. Please try again.' });
@@ -813,24 +740,6 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       setIsLoading(false);
     }
   };
-
-  if (success) {
-    return (
-      <div className="flex flex-col items-center gap-4 py-8 animate-fade-in">
-        <div className="w-16 h-16 rounded-full bg-positive/10 flex items-center justify-center">
-          <Icon name="CheckBadgeIcon" size={36} className="text-positive" />
-        </div>
-        <h3 className="text-xl font-700 text-foreground">Account Created!</h3>
-        <p className="text-sm text-muted-foreground text-center max-w-xs">
-          Your account is ready. Sign in to get started.
-        </p>
-        <button className="btn-primary mt-2" onClick={() => onSwitchTab('login')}>
-          <Icon name="ArrowRightOnRectangleIcon" size={16} />
-          Go to Sign In
-        </button>
-      </div>
-    );
-  }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
@@ -968,17 +877,22 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             Mentor Invite Code <span className="text-negative">*</span>
           </label>
           <p className="text-xs text-muted-foreground mb-2">
-            Enter the 8-character code provided by your mentor to link your account.
+            Enter the code provided by your mentor (format: ABC-123456).
           </p>
           <div className="relative">
             <input
               className="input-mystic pr-10 font-mono tracking-widest uppercase"
-              placeholder="e.g. AB12CD34"
-              maxLength={8}
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
               {...register('inviteCode', {
                 required: selectedRole === 'student' ? 'Invite code is required' : false,
-                minLength: { value: 8, message: 'Code must be 8 characters' },
-                maxLength: { value: 8, message: 'Code must be 8 characters' },
+                validate: (val) => {
+                  if (selectedRole !== 'student') return true;
+                  if (!val || !validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
               })}
             />
             <Icon
@@ -1000,17 +914,22 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             Parent Link Code <span className="text-negative">*</span>
           </label>
           <p className="text-xs text-muted-foreground mb-2">
-            Enter the 6-digit code generated by your child from their Student Dashboard → Network &amp; Links.
+            Enter the code generated by your child from their Student Dashboard → Network &amp; Links (format: ABC-123456).
           </p>
           <div className="relative">
             <input
-              className="input-mystic pr-10 font-mono tracking-widest"
-              placeholder="e.g. 123456"
-              maxLength={6}
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
               {...register('parentLinkCode', {
                 required: selectedRole === 'parent' ? 'Parent Link Code is required' : false,
-                minLength: { value: 6, message: 'Code must be 6 digits' },
-                maxLength: { value: 6, message: 'Code must be 6 digits' },
+                validate: (val) => {
+                  if (selectedRole !== 'parent') return true;
+                  if (!val || !validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
               })}
             />
             <Icon
@@ -1032,17 +951,19 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             Counselor Invite Code <span className="text-muted-foreground font-400">(optional)</span>
           </label>
           <p className="text-xs text-muted-foreground mb-2">
-            If your counselor provided a 6-digit code, enter it here to link your account to them.
+            If your counselor provided a code, enter it here to link your account (format: ABC-123456).
           </p>
           <div className="relative">
             <input
-              className="input-mystic pr-10 font-mono tracking-widest"
-              placeholder="e.g. 123456"
-              maxLength={6}
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
               {...register('counselorInviteCode', {
                 validate: (val) => {
                   if (!val || val.trim() === '') return true;
-                  if (val.trim().length !== 6) return 'Code must be exactly 6 digits';
+                  if (!validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
                   return true;
                 },
               })}
@@ -1066,17 +987,19 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             School Invite Code <span className="text-muted-foreground font-400">(optional)</span>
           </label>
           <p className="text-xs text-muted-foreground mb-2">
-            If your school provided a 6-digit code, enter it here to link your account to the school.
+            If your school provided a code, enter it here to link your account (format: ABC-123456).
           </p>
           <div className="relative">
             <input
-              className="input-mystic pr-10 font-mono tracking-widest"
-              placeholder="e.g. 789012"
-              maxLength={6}
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
               {...register('schoolInviteCode', {
                 validate: (val) => {
                   if (!val || val.trim() === '') return true;
-                  if (val.trim().length !== 6) return 'Code must be exactly 6 digits';
+                  if (!validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
                   return true;
                 },
               })}

@@ -428,8 +428,11 @@ export default function CounselorDashboardContent() {
       if (existing?.invite_code) {
         toast.success(`Your counselor code: ${existing.invite_code}`, { duration: 5000 });
       } else {
-        // Generate a new code only if none exists
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        // Generate a new code in LLL-DDDDDD format
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
+        const digits = String(Math.floor(Math.random() * 900000) + 100000);
+        const code = `${prefix}-${digits}`;
         const { error } = await supabase
           .from('counselor_mentor_invites')
           .insert({ counselor_id: counselorProfile.id, invite_code: code });
