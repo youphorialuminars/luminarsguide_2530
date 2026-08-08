@@ -818,7 +818,7 @@ export default function NetworkLinksContent() {
         </p>
       </div>
 
-      {profile.role === 'student_parent' && (
+      {profile.role === 'student' && (
         <StudentSection profile={profile} onRefresh={refreshProfile} />
       )}
 
