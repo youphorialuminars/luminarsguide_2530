@@ -91,7 +91,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
     toast.success('Parent Link Code copied!');
   };
 
-  const handleLinkMentor = async () => {
+ const handleLinkMentor = async () => {
     if (!mentorCode.trim()) return;
     setSubmittingMentor(true);
     try {
@@ -107,6 +107,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         return;
       }
 
+      // Update student's profile with mentor_id
       const { error: updateError } = await supabase
         .from('user_profiles')
         .update({ mentor_id: mentorProfile.id })
@@ -114,11 +115,55 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
 
       if (updateError) {
         toast.error('Failed to link mentor: ' + updateError.message);
-      } else {
-        toast.success(`Linked to mentor: ${mentorProfile.full_name}`);
-        setMentorCode('');
-        onRefresh();
+        return;
       }
+
+      // Ensure a matching row exists in the `students` table for this account
+      if (!profile.student_id) {
+        const { data: existingRow } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_user_id', profile.id)
+          .maybeSingle();
+
+        let studentRecordId = existingRow?.id;
+
+        if (!studentRecordId) {
+          const { data: newRow, error: insertError } = await supabase
+            .from('students')
+            .insert({
+              mentor_id: mentorProfile.id,
+              name: profile.full_name || profile.email || 'Student',
+              student_email: profile.email || null,
+              student_user_id: profile.id,
+            })
+            .select('id')
+            .single();
+
+          if (insertError) {
+            toast.error('Linked to mentor, but failed to create student record: ' + insertError.message);
+          } else {
+            studentRecordId = newRow.id;
+          }
+        } else {
+          // Row already existed (e.g. from a previous partial link) — just update mentor_id
+          await supabase
+            .from('students')
+            .update({ mentor_id: mentorProfile.id })
+            .eq('id', studentRecordId);
+        }
+
+        if (studentRecordId) {
+          await supabase
+            .from('user_profiles')
+            .update({ student_id: studentRecordId })
+            .eq('id', profile.id);
+        }
+      }
+
+      toast.success(`Linked to mentor: ${mentorProfile.full_name}`);
+      setMentorCode('');
+      onRefresh();
     } finally {
       setSubmittingMentor(false);
     }
