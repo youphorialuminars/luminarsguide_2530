@@ -184,7 +184,6 @@ export default function GlobalSearch() {
         <input
           ref={inputRef}
           type="text"
-          style={{ paddingLeft: '35px' }}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search students…"
