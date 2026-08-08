@@ -160,17 +160,7 @@ const onSubmit = async (data: LoginForm) => {
         window.location.href = '/counselor-dashboard';
       } else if (role === 'school') {
         window.location.href = '/school-dashboard';
-      } else {
-        window.location.href = '/student-dashboard';
-      }
-    } catch (err: any) {
-      console.error('[SignIn] Unexpected exception:', err);
-      setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
-      setError('password', { message: 'Sign in failed. Please try again.' });
-      setIsLoading(false);
-    }
-  };
-      
+
       // Fetch profile to determine role
       let profile: any = null;
       let profileError: any = null;
@@ -222,12 +212,14 @@ const onSubmit = async (data: LoginForm) => {
       } else {
         router.push('/student-dashboard');
       }
+    } 
     } catch (err: any) {
       console.error('[SignIn] Unexpected exception:', err);
       setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
       setError('password', { message: 'Sign in failed. Please try again.' });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
