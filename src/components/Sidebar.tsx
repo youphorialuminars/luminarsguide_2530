@@ -22,14 +22,14 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'New Session', href: '/new-session', icon: 'PlusCircleIcon', roles: ['mentor'] },
   { label: 'Analysis', href: '/student-analysis-history', icon: 'ChartBarIcon', roles: ['mentor'] },
   // Student-only
-  { label: 'Student Dashboard', href: '/student-parent-dashboard', icon: 'AcademicCapIcon', roles: ['student_parent'] },
+  { label: 'Student Dashboard', href: '/student-dashboard', icon: 'AcademicCapIcon', roles: ['student'] },
   // Counselor-only
   { label: 'Counselor Dashboard', href: '/counselor-dashboard', icon: 'ShieldCheckIcon', roles: ['counselor'] },
   // School-only
   { label: 'School Dashboard', href: '/school-dashboard', icon: 'BuildingLibraryIcon', roles: ['school'] },
   // All roles
-  { label: 'Network & Links', href: '/network-links', icon: 'LinkIcon', roles: ['mentor', 'student_parent', 'counselor', 'school'] },
-  { label: 'Settings', href: '/settings', icon: 'Cog6ToothIcon', roles: ['mentor', 'student_parent', 'counselor', 'school'] },
+  { label: 'Network & Links', href: '/network-links', icon: 'LinkIcon', roles: ['mentor', 'student', 'counselor', 'school'] },
+  { label: 'Settings', href: '/settings', icon: 'Cog6ToothIcon', roles: ['mentor', 'student', 'counselor', 'school'] },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
