@@ -187,7 +187,7 @@ export default function GlobalSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search students…"
-          className="pl-8 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
+          className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
           onFocus={() => query.trim().length >= 2 && setOpen(true)}
         />
         {loading && (
