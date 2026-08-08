@@ -19,14 +19,14 @@ interface InviteCode {
   used_by: string | null;
   created_at: string;
 }
-
-// ─── Student Section ──────────────────────────────────────────────────────────
 function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () => void }) {
   const supabase = createClient();
   const [mentorCode, setMentorCode] = useState('');
   const [schoolCode, setSchoolCode] = useState('');
+  const [counselorCode, setCounselorCode] = useState('');
   const [submittingMentor, setSubmittingMentor] = useState(false);
   const [submittingSchool, setSubmittingSchool] = useState(false);
+  const [submittingCounselor, setSubmittingCounselor] = useState(false);
   const [parentLinkCode, setParentLinkCode] = useState<string | null>(null);
   const [generatingParentCode, setGeneratingParentCode] = useState(false);
   const [copiedParentCode, setCopiedParentCode] = useState(false);
@@ -95,7 +95,6 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
     if (!mentorCode.trim()) return;
     setSubmittingMentor(true);
     try {
-      // Find mentor by mentor_code
       const { data: mentorProfile, error } = await supabase
         .from('user_profiles')
         .select('id, full_name, mentor_code')
@@ -108,7 +107,6 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         return;
       }
 
-      // Update student's profile with mentor_id
       const { error: updateError } = await supabase
         .from('user_profiles')
         .update({ mentor_id: mentorProfile.id })
@@ -168,13 +166,55 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
     }
   };
 
+  const handleLinkCounselor = async () => {
+    if (!counselorCode.trim()) return;
+    setSubmittingCounselor(true);
+    try {
+      const { data: codeRow, error } = await supabase
+        .from('counselor_mentor_invites')
+        .select('id, counselor_id, used_by')
+        .eq('invite_code', counselorCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid counselor code. Please check and try again.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This counselor code has already been used.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ counselor_id: codeRow.counselor_id })
+        .eq('id', profile.id);
+
+      if (updateError) {
+        toast.error('Failed to link counselor: ' + updateError.message);
+        return;
+      }
+
+      await supabase
+        .from('counselor_mentor_invites')
+        .update({ used_by: profile.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to counselor successfully!');
+      setCounselorCode('');
+      onRefresh();
+    } finally {
+      setSubmittingCounselor(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="card-elevated p-6">
         <h2 className="text-lg font-700 text-foreground mb-1">Your Connections</h2>
-        <p className="text-sm text-muted-foreground mb-5">Enter codes to link yourself to a mentor or school.</p>
+        <p className="text-sm text-muted-foreground mb-5">Enter codes to link yourself to a mentor, school, or counselor.</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <div className="p-4 rounded-xl bg-secondary border border-border">
             <div className="flex items-center gap-2 mb-1">
               <Icon name="AcademicCapIcon" size={16} className="text-primary" />
@@ -191,6 +231,15 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
             </div>
             <p className="text-sm font-600 text-foreground">
               {profile?.school_id ? '✅ Linked' : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.counselor_id ? '✅ Linked' : '— Not linked yet'}
             </p>
           </div>
         </div>
@@ -237,6 +286,31 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
                 disabled={submittingSchool || !schoolCode.trim()}
               >
                 {submittingSchool ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter Counselor Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. CNS-ABCD12"
+                value={counselorCode}
+                onChange={(e) => setCounselorCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkCounselor()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkCounselor}
+                disabled={submittingCounselor || !counselorCode.trim()}
+              >
+                {submittingCounselor ? (
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <Icon name="LinkIcon" size={16} />
