@@ -41,92 +41,6 @@ function SupabaseErrorBanner({ message, code, onDismiss }: SupabaseErrorBannerPr
   );
 }
 
-// ─── System Health Check ───────────────────────────────────────────────────────
-function SystemHealthCheck() {
-  const [status, setStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
-  const [detail, setDetail] = useState<string>('');
-
-  const runCheck = async () => {
-    setStatus('checking');
-    setDetail('');
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl) {
-      setStatus('error');
-      setDetail('NEXT_PUBLIC_SUPABASE_URL is undefined. The environment variable is not set.');
-      return;
-    }
-    if (!supabaseKey) {
-      setStatus('error');
-      setDetail('NEXT_PUBLIC_SUPABASE_ANON_KEY is undefined. The environment variable is not set.');
-      return;
-    }
-
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .limit(1);
-
-      if (error) {
-        setStatus('error');
-        setDetail(`Code: ${error.code || 'N/A'} | Message: ${error.message} | Hint: ${error.hint || 'none'} | Details: ${error.details || 'none'}`);
-        console.error('[HealthCheck] Supabase ping failed:', error);
-      } else {
-        setStatus('ok');
-        setDetail(`Connected to ${supabaseUrl} — query returned ${data?.length ?? 0} row(s).`);
-      }
-    } catch (err: any) {
-      setStatus('error');
-      setDetail(err?.message || String(err));
-      console.error('[HealthCheck] Exception during ping:', err);
-    }
-  };
-
-  return (
-    <div className="mb-4">
-      <button
-        type="button"
-        onClick={runCheck}
-        disabled={status === 'checking'}
-        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-dashed border-amber-500/40 bg-amber-500/5 text-amber-400 text-xs font-600 hover:border-amber-500/70 hover:bg-amber-500/10 transition-all disabled:opacity-60"
-      >
-        {status === 'checking' ? (
-          <>
-            <Icon name="ArrowPathIcon" size={13} className="animate-spin" />
-            Checking Connection...
-          </>
-        ) : (
-          <>
-            <Icon name="SignalIcon" size={13} />
-            🔧 System Health Check
-          </>
-        )}
-      </button>
-
-      {status === 'ok' && (
-        <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 animate-fade-in">
-          <Icon name="CheckCircleIcon" size={14} className="text-green-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-green-300 break-words leading-relaxed">✅ Database Connected — {detail}</p>
-        </div>
-      )}
-
-      {status === 'error' && (
-        <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-red-500/10 border-2 border-red-500/40 animate-fade-in">
-          <Icon name="XCircleIcon" size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-xs font-700 text-red-400 mb-0.5">❌ Connection Failed</p>
-            <p className="text-xs text-red-300 break-words leading-relaxed font-mono">{detail}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 interface LoginForm {
   email: string;
   password: string;
@@ -243,8 +157,6 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
-      {/* System Health Check — temporary diagnostic tool */}
-      <SystemHealthCheck />
 
       {/* Visible Supabase Error Banner */}
       {supabaseError && (
