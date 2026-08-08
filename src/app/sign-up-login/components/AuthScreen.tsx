@@ -88,13 +88,67 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         email: data.email,
         password: data.password,
       });
+
       if (error) {
         console.error('[SignIn] auth.signInWithPassword error:', error);
-        setSupabaseError({ message: error.message, code: error.status?.toString() || (error as any).code });
+        setSupabaseError({
+          message: error.message,
+          code: error.status?.toString(),
+        });
         setError('password', { message: error.message });
         setIsLoading(false);
         return;
       }
+
+      // Fetch profile to determine role
+      let profile: any = null;
+      try {
+        const result = await supabase
+          .from('user_profiles')
+          .select('role, full_name')
+          .eq('id', authData.user.id)
+          .single();
+        profile = result.data;
+      } catch (profileFetchErr: any) {
+        console.error('[SignIn] user_profiles fetch exception:', profileFetchErr);
+      }
+
+      // Fallback: use user_metadata if profile fetch fails
+      const role: string =
+        profile?.role ||
+        authData.user.user_metadata?.role ||
+        'mentor';
+
+      const fullName: string =
+        profile?.full_name ||
+        authData.user.user_metadata?.full_name ||
+        authData.user.email ||
+        'User';
+
+      // Set role cookie for middleware route guarding
+      document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+
+      toast.success(`Welcome back, ${fullName}!`);
+
+      // Instant hard-redirect based on role (bypasses router lag and 404s)
+      if (role === 'student_parent' || role === 'student') {
+        window.location.href = '/student-parent-dashboard';
+      } else if (role === 'parent') {
+        window.location.href = '/parents-hub';
+      } else if (role === 'counselor') {
+        window.location.href = '/counselor-dashboard';
+      } else if (role === 'school') {
+        window.location.href = '/school-dashboard';
+      } else {
+        window.location.href = '/student-dashboard';
+      }
+    } catch (err: any) {
+      console.error('[SignIn] Unexpected exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
+      setError('password', { message: 'Sign in failed. Please try again.' });
+      setIsLoading(false);
+    }
+  };
       
       // Fetch profile to determine role
       let profile: any = null;
