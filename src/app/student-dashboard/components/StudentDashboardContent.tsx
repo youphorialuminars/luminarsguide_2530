@@ -31,6 +31,16 @@ interface DbStudent {
   avatar: string;
 }
 
+// ─── DB Student type from user_profiles ──────────────────────────────────────
+interface DbUserProfileStudent {
+  id: string;
+  full_name: string;
+  email: string;
+  mentor_id: string;
+  role: string;
+  created_at: string | null;
+}
+
 // ─── UI Student shape (mapped from DbStudent) ─────────────────────────────────
 interface UiStudent {
   id: string;
@@ -407,10 +417,10 @@ export default function StudentDashboardContent() {
 
     const [studentsResult, profileResult] = await Promise.all([
       supabase
-        .from('students')
-        .select('id, name, grade, age, gender, mentor_id, avg_score, sessions, topics, trend, alert_level, last_session, notes, avatar')
-        .eq('mentor_id', user.id)
-        .order('name', { ascending: true }),
+        .from('user_profiles')
+        .select('id, full_name, email, mentor_id, role, created_at')
+        .eq('role', 'student')
+        .eq('mentor_id', user.id),
       supabase
         .from('user_profiles')
         .select('mentor_code')
@@ -418,17 +428,36 @@ export default function StudentDashboardContent() {
         .single(),
     ]);
 
-    const rawStudents: DbStudent[] = studentsResult.data || [];
-    setStudents(rawStudents.map((s, i) => mapDbStudentToUi(s, i)));
-    setDbStudents(rawStudents.map((s) => ({ id: s.id, name: s.name })));
+    const rawProfiles: DbUserProfileStudent[] = studentsResult.data || [];
+
+    // Map user_profiles students to UiStudent shape
+    const mappedStudents: UiStudent[] = rawProfiles.map((p, i) => {
+      const nameParts = (p.full_name || p.email || 'Student').split(' ');
+      const initials = nameParts.slice(0, 2).map((n: string) => n[0]).join('').toUpperCase();
+      return {
+        id: p.id,
+        name: p.full_name || p.email || 'Student',
+        grade: '',
+        age: undefined,
+        gender: undefined,
+        mentorId: p.mentor_id,
+        avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
+        avatarInitials: initials,
+        enrolledDate: p.created_at ? p.created_at.split('T')[0] : '',
+        lastSessionDate: '—',
+        sessionCount: 0,
+        averageScore: 0,
+        scoreTrend: 'stable',
+        primaryTopics: [],
+        notes: '',
+      };
+    });
+
+    setStudents(mappedStudents);
+    setDbStudents(rawProfiles.map((p) => ({ id: p.id, name: p.full_name || p.email || 'Student' })));
 
     if (profileResult.data?.mentor_code) {
       setMentorCode(profileResult.data.mentor_code);
-    }
-
-    // Load parent engagement scores for these students
-    if (rawStudents.length > 0) {
-      loadParentEngagement(rawStudents.map((s) => s.id));
     }
 
     // Load sessions this week from Supabase
@@ -443,18 +472,18 @@ export default function StudentDashboardContent() {
     setSessionsThisWeek(sessData?.length || 0);
 
     setStudentsLoading(false);
-  }, [supabase, loadParentEngagement]);
+  }, [supabase]);
 
   useEffect(() => {
     loadStudents();
   }, [loadStudents]);
 
-  // ─── Remove Student (set mentor_id to null) ───────────────────────────────
+  // ─── Remove Student (set mentor_id to null in user_profiles) ─────────────
   const handleRemoveStudent = async (studentId: string, studentName: string) => {
     if (!confirm(`Remove ${studentName} from your roster? They will be unlinked but their data will be preserved.`)) return;
     setRemovingStudentId(studentId);
     const { error } = await supabase
-      .from('students')
+      .from('user_profiles')
       .update({ mentor_id: null })
       .eq('id', studentId);
     if (error) {
@@ -763,10 +792,16 @@ export default function StudentDashboardContent() {
             Your mentorship memory — all students, all sessions, all progress.
           </p>
         </div>
-        {activeTab === 'roster' && (
-          <button className="btn-primary self-start sm:self-auto" onClick={() => setShowAddModal(true)}>
-            <Icon name="UserPlusIcon" size={17} />
-            Add Student
+        {activeTab === 'roster' && mentorCode && (
+          <button
+            className="btn-primary self-start sm:self-auto"
+            onClick={() => {
+              navigator.clipboard?.writeText(mentorCode);
+              toast.success('Invite code copied to clipboard!');
+            }}
+          >
+            <Icon name="KeyIcon" size={17} />
+            Generate / View Invite Code
           </button>
         )}
       </div>
@@ -970,7 +1005,7 @@ export default function StudentDashboardContent() {
               <div className="flex items-start gap-2 sm:max-w-xs">
                 <Icon name="InformationCircleIcon" size={14} className="text-primary flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Give this code to students for them to link to your roster upon sign-up.
+                  Share this code with students. They enter it during sign-up to link to your roster automatically.
                 </p>
               </div>
               <button
@@ -991,7 +1026,7 @@ export default function StudentDashboardContent() {
             <div className="relative flex-1">
               <Icon name="MagnifyingGlassIcon" size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               <input
-                className="input-mystic pl-9"
+                className="input-mystic pl-10"
                 placeholder="Search by name, grade, or pillar..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

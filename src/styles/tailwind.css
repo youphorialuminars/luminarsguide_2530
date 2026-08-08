@@ -117,7 +117,10 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: var(--fs-base, 0.9375rem);
-    padding: 0.625rem 0.875rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
     width: 100%;
     transition: border-color 150ms ease, box-shadow 150ms ease;
     outline: none;

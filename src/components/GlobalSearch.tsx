@@ -78,7 +78,7 @@ export default function GlobalSearch() {
           }
         } else if (role === 'school') {
           // School: search mentors and students linked to this school
-          const [{ data: mentors }, { data: students }] = await Promise.all([
+          const [{ data: schoolMentors }, { data: schoolStudents }] = await Promise.all([
             supabase
               .from('user_profiles')
               .select('id, full_name, email')
@@ -94,7 +94,7 @@ export default function GlobalSearch() {
               .limit(5),
           ]);
 
-          (mentors || []).forEach((m) =>
+          (schoolMentors || []).forEach((m) =>
             hits.push({
               id: m.id,
               label: m.full_name,
@@ -103,7 +103,7 @@ export default function GlobalSearch() {
               href: `/school-mentor-view?mentorId=${m.id}`,
             })
           );
-          (students || []).forEach((s) =>
+          (schoolStudents || []).forEach((s) =>
             hits.push({
               id: s.id,
               label: s.name,
@@ -187,7 +187,7 @@ export default function GlobalSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search students…"
-          className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full"
+          className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
           onFocus={() => query.trim().length >= 2 && setOpen(true)}
         />
         {loading && (

@@ -361,6 +361,12 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
+  // Email confirmation OTP step
+  const [awaitingOtp, setAwaitingOtp] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
   const supabase = createClient();
 
   const {
@@ -703,6 +709,18 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
         if (signInErr) {
           console.error('[SignUp] Auto sign-in failed:', signInErr);
+          // Check if email confirmation is required (Supabase returns email_not_confirmed)
+          if (
+            signInErr.message?.toLowerCase().includes('email not confirmed') ||
+            signInErr.message?.toLowerCase().includes('email_not_confirmed') ||
+            (signInErr as any).code === 'email_not_confirmed'
+          ) {
+            setOtpEmail(data.email);
+            setAwaitingOtp(true);
+            setIsLoading(false);
+            toast.info('Please check your email and enter the verification code below.');
+            return;
+          }
           // Auth succeeded but auto sign-in failed — fall back to manual sign-in
           toast.success('Account created! Please sign in to continue.');
           setIsLoading(false);
@@ -740,6 +758,106 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       setIsLoading(false);
     }
   };
+
+  // ─── OTP Verification Handler ──────────────────────────────────────────────
+  const handleVerifyOtp = async () => {
+    if (!otpCode.trim()) { setOtpError('Please enter the verification code.'); return; }
+    setVerifyingOtp(true);
+    setOtpError(null);
+    try {
+      const { data: verifyData, error: verifyErr } = await supabase.auth.verifyOtp({
+        email: otpEmail,
+        token: otpCode.trim(),
+        type: 'signup',
+      });
+      if (verifyErr) {
+        console.error('[OTP] verifyOtp error:', verifyErr);
+        setOtpError(verifyErr.message || 'Invalid or expired code. Please try again.');
+        setVerifyingOtp(false);
+        return;
+      }
+      // OTP verified — session is now active
+      const role: string = verifyData?.user?.user_metadata?.role || 'mentor';
+      document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=None; Secure`;
+      toast.success('Email verified! Welcome to Luminar\'s Guide.');
+      if (role === 'student_parent' || role === 'student') {
+        router.push('/student-parent-dashboard');
+      } else if (role === 'parent') {
+        router.push('/parents-hub');
+      } else if (role === 'counselor') {
+        router.push('/counselor-dashboard');
+      } else if (role === 'school') {
+        router.push('/school-dashboard');
+      } else {
+        router.push('/student-dashboard');
+      }
+    } catch (err: any) {
+      console.error('[OTP] exception:', err);
+      setOtpError(err?.message || 'Verification failed. Please try again.');
+    }
+    setVerifyingOtp(false);
+  };
+
+  // ─── OTP Step UI ───────────────────────────────────────────────────────────
+  if (awaitingOtp) {
+    return (
+      <div className="flex flex-col gap-5 animate-fade-in">
+        <div className="flex flex-col items-center gap-3 py-4">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+            <Icon name="EnvelopeIcon" size={32} className="text-primary" />
+          </div>
+          <h3 className="text-xl font-700 text-foreground text-center">Check Your Email</h3>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            We sent a verification code to <span className="font-600 text-foreground">{otpEmail}</span>. Enter it below to confirm your account.
+          </p>
+        </div>
+
+        {otpError && (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border-2 border-red-500/50 text-red-400 animate-fade-in">
+            <Icon name="ExclamationTriangleIcon" size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+            <p className="text-xs text-red-300 break-words leading-relaxed">{otpError}</p>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Verification Code <span className="text-negative">*</span>
+          </label>
+          <input
+            className="input-mystic text-center font-mono tracking-[0.4em] text-lg"
+            placeholder="Enter code"
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyOtp(); }}
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground mt-1.5">Enter the 6-digit code from your email.</p>
+        </div>
+
+        <button
+          type="button"
+          className="btn-primary w-full"
+          onClick={handleVerifyOtp}
+          disabled={verifyingOtp}
+        >
+          {verifyingOtp ? (
+            <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Verifying...</>
+          ) : (
+            <><Icon name="CheckCircleIcon" size={16} /> Verify & Continue</>
+          )}
+        </button>
+
+        <button
+          type="button"
+          className="btn-ghost w-full text-sm"
+          onClick={() => { setAwaitingOtp(false); setOtpCode(''); setOtpError(null); }}
+        >
+          <Icon name="ArrowLeftIcon" size={14} />
+          Back to Sign Up
+        </button>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">

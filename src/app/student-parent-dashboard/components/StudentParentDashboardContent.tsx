@@ -209,6 +209,11 @@ export default function StudentParentDashboardContent() {
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
 
+  // Link to Mentor state
+  const [mentorInviteCode, setMentorInviteCode] = useState('');
+  const [linkingMentor, setLinkingMentor] = useState(false);
+  const [linkedMentorName, setLinkedMentorName] = useState<string | null>(null);
+
   // Reflection form state
   const [reflectionForm, setReflectionForm] = useState({ learned_this_week: '', needs_work: '', team_dynamics: '', peer_appreciation: '' });
   const [submittingReflection, setSubmittingReflection] = useState(false);
@@ -279,6 +284,65 @@ export default function StudentParentDashboardContent() {
   }, [supabase, router]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Load linked mentor name if mentor_id exists
+  useEffect(() => {
+    const fetchMentorName = async () => {
+      if (!userProfile?.mentor_id) return;
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('id', userProfile.mentor_id)
+        .single();
+      if (data?.full_name) setLinkedMentorName(data.full_name);
+    };
+    fetchMentorName();
+  }, [userProfile?.mentor_id, supabase]);
+
+  // ─── Link to Mentor Handler ────────────────────────────────────────────────
+  const handleLinkToMentor = async () => {
+    const code = mentorInviteCode.trim().toUpperCase();
+    if (!code) { toast.error('Please enter a Mentor Invite Code.'); return; }
+    const INVITE_CODE_REGEX = /^[A-Z]{3}-\d{6}$/;
+    if (!INVITE_CODE_REGEX.test(code)) {
+      toast.error('Code must be in format ABC-123456 (3 letters, hyphen, 6 digits).');
+      return;
+    }
+    setLinkingMentor(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error('Not authenticated.'); setLinkingMentor(false); return; }
+
+      // Look up mentor by mentor_code
+      const { data: mentorRow, error: lookupErr } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, role')
+        .eq('mentor_code', code)
+        .eq('role', 'mentor')
+        .maybeSingle();
+
+      if (lookupErr) { toast.error('Lookup failed: ' + lookupErr.message); setLinkingMentor(false); return; }
+      if (!mentorRow) { toast.error('Invalid invite code. Please check with your mentor.'); setLinkingMentor(false); return; }
+
+      // Update the student's mentor_id in user_profiles
+      const { error: updateErr } = await supabase
+        .from('user_profiles')
+        .update({ mentor_id: mentorRow.id })
+        .eq('id', user.id);
+
+      if (updateErr) {
+        toast.error('Failed to link mentor: ' + updateErr.message);
+      } else {
+        toast.success(`Successfully linked to mentor: ${mentorRow.full_name}!`);
+        setLinkedMentorName(mentorRow.full_name);
+        setMentorInviteCode('');
+        loadData();
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'An unexpected error occurred.');
+    }
+    setLinkingMentor(false);
+  };
 
   const completedTasks = tasks.filter((t) => t.status === 'Completed').length;
   const tier = getQuestTier(completedTasks);
@@ -431,6 +495,59 @@ export default function StudentParentDashboardContent() {
       {/* ── OVERVIEW TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
         <div className="flex flex-col gap-6">
+          {/* ── LINK TO MENTOR SECTION ─────────────────────────────────────── */}
+          {!userProfile?.mentor_id ? (
+            <div className="card-mystic p-5 border-2 border-dashed border-primary/30 bg-primary/3">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Icon name="LinkIcon" size={20} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-base font-700 text-foreground">Link to Your Mentor</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Enter the invite code your mentor gave you to connect your account.</p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Icon name="KeyIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <input
+                    className="input-mystic pl-9 font-mono tracking-widest uppercase"
+                    placeholder="e.g. ABC-123456"
+                    maxLength={10}
+                    value={mentorInviteCode}
+                    onChange={(e) => setMentorInviteCode(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleLinkToMentor(); }}
+                  />
+                </div>
+                <button
+                  className="btn-primary flex-shrink-0"
+                  onClick={handleLinkToMentor}
+                  disabled={linkingMentor}
+                >
+                  {linkingMentor ? (
+                    <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Linking...</>
+                  ) : (
+                    <><Icon name="LinkIcon" size={15} /> Link to Mentor</>
+                  )}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+                <Icon name="InformationCircleIcon" size={13} className="text-info flex-shrink-0" />
+                Ask your mentor for their invite code (format: ABC-123456).
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-positive/5 border border-positive/20 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-positive/10 flex items-center justify-center flex-shrink-0">
+                <Icon name="CheckCircleIcon" size={18} className="text-positive" />
+              </div>
+              <div>
+                <p className="text-sm font-700 text-foreground">Linked to Mentor</p>
+                <p className="text-xs text-muted-foreground">{linkedMentorName || 'Your mentor account is connected.'}</p>
+              </div>
+            </div>
+          )}
+
           {/* Quest Progress */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
