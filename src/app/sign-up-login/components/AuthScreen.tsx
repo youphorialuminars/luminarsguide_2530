@@ -80,7 +80,7 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
     setValue,
   } = useForm<LoginForm>();
 
-  const onSubmit = async (data: LoginForm) => {
+const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     setSupabaseError(null);
     try {
@@ -129,6 +129,27 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
 
       toast.success(`Welcome back, ${fullName}!`);
+
+      // Hard-redirect based on role
+      if (role === 'student_parent' || role === 'student') {
+        window.location.href = '/student-parent-dashboard';
+      } else if (role === 'parent') {
+        window.location.href = '/parents-hub';
+      } else if (role === 'counselor') {
+        window.location.href = '/counselor-dashboard';
+      } else if (role === 'school') {
+        window.location.href = '/school-dashboard';
+      } else {
+        window.location.href = '/student-dashboard';
+      }
+    } catch (err: any) {
+      console.error('[SignIn] Unexpected exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
+      setError('password', { message: 'Sign in failed. Please try again.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
       // Instant hard-redirect based on role (bypasses router lag and 404s)
       if (role === 'student_parent' || role === 'student') {
