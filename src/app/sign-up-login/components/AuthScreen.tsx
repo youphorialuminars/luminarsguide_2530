@@ -95,8 +95,7 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         setIsLoading(false);
         return;
       }
-      window.location.href = '/dashboard';
-
+      
       // Fetch profile to determine role
       let profile: any = null;
       let profileError: any = null;
