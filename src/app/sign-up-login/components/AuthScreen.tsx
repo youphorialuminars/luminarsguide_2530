@@ -572,6 +572,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           let studentRecordId = existingRow?.id;
 
           if (!studentRecordId) {
+            const generatedStudentCode = `STU-${Math.floor(100000 + Math.random() * 900000)}`;
             const { data: newRow, error: insertError } = await supabase
               .from('students')
               .insert({
@@ -579,6 +580,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
                 name: data.fullName,
                 student_email: data.email,
                 student_user_id: authData.user.id,
+                student_code: generatedStudentCode,
               })
               .select('id')
               .single();
