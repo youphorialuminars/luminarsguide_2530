@@ -560,6 +560,47 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         setSupabaseError({ message: `Profile INSERT exception: ${profileEx?.message || String(profileEx)}` });
         toast.error(`⚠️ Profile write exception: ${profileEx?.message || String(profileEx)}`);
       }
+      // ── Step 2.5: For students, create their matching `students` table row ──
+      if (data.role === 'student' && linkedMentorId && authData?.user?.id) {
+        try {
+          const { data: existingRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_user_id', authData.user.id)
+            .maybeSingle();
+
+          let studentRecordId = existingRow?.id;
+
+          if (!studentRecordId) {
+            const { data: newRow, error: insertError } = await supabase
+              .from('students')
+              .insert({
+                mentor_id: linkedMentorId,
+                name: data.fullName,
+                student_email: data.email,
+                student_user_id: authData.user.id,
+              })
+              .select('id')
+              .single();
+
+            if (insertError) {
+              console.error('[SignUp] students INSERT error:', insertError);
+              toast.error(`⚠️ Student record creation failed: ${insertError.message}`);
+            } else {
+              studentRecordId = newRow.id;
+            }
+          }
+
+          if (studentRecordId) {
+            await supabase
+              .from('user_profiles')
+              .update({ student_id: studentRecordId })
+              .eq('id', authData.user.id);
+          }
+        } catch (studentRowEx: any) {
+          console.error('[SignUp] students row creation exception:', studentRowEx);
+        }
+      }
 
       // ── Step 3: Redeem parent link code via SECURITY DEFINER RPC ────────────
       if (data.role === 'parent' && data.parentLinkCode && authData?.user?.id) {
