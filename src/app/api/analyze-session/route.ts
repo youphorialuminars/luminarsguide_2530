@@ -138,7 +138,7 @@ async function tryGemini(userPrompt: string, useProModel: boolean): Promise<Anal
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your-gemini-api-key-here') throw new Error('GEMINI_API_KEY not configured');
 
-  const model = useProModel ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
+  const model = useProModel ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
 
