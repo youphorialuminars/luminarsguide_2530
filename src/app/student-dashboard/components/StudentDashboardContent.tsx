@@ -418,7 +418,7 @@ export default function StudentDashboardContent() {
     const [studentsResult, profileResult] = await Promise.all([
       supabase
         .from('user_profiles')
-        .select('id, full_name, email, mentor_id, role, created_at')
+        .select('id, full_name, email, mentor_id, role, created_at, student_id')
         .eq('role', 'student')
         .eq('mentor_id', user.id),
       supabase
@@ -435,7 +435,7 @@ export default function StudentDashboardContent() {
       const nameParts = (p.full_name || p.email || 'Student').split(' ');
       const initials = nameParts.slice(0, 2).map((n: string) => n[0]).join('').toUpperCase();
       return {
-        id: p.id,
+        id: p.student_id || p.id,
         name: p.full_name || p.email || 'Student',
         grade: '',
         age: undefined,
