@@ -31,38 +31,8 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
   const [generatingParentCode, setGeneratingParentCode] = useState(false);
   const [copiedParentCode, setCopiedParentCode] = useState(false);
   const [mentorName, setMentorName] = useState<string | null>(null);
-const [schoolName, setSchoolName] = useState<string | null>(null);
-const [counselorName, setCounselorName] = useState<string | null>(null);
-
-useEffect(() => {
-  const loadLinkedNames = async () => {
-    if (profile?.mentor_id) {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('full_name')
-        .eq('id', profile.mentor_id)
-        .single();
-      setMentorName(data?.full_name || null);
-    }
-    if (profile?.school_id) {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('full_name')
-        .eq('id', profile.school_id)
-        .single();
-      setSchoolName(data?.full_name || null);
-    }
-    if (profile?.counselor_id) {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('full_name')
-        .eq('id', profile.counselor_id)
-        .single();
-      setCounselorName(data?.full_name || null);
-    }
-  };
-  loadLinkedNames();
-}, [profile?.mentor_id, profile?.school_id, profile?.counselor_id, supabase]);
+  const [schoolName, setSchoolName] = useState<string | null>(null);
+  const [counselorName, setCounselorName] = useState<string | null>(null);
 
   useEffect(() => {
     // Load existing parent_link_code for this student
@@ -77,6 +47,36 @@ useEffect(() => {
         });
     }
   }, [profile?.student_id, supabase]);
+
+  useEffect(() => {
+    const loadLinkedNames = async () => {
+      if (profile?.mentor_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.mentor_id)
+          .single();
+        setMentorName(data?.full_name || null);
+      }
+      if (profile?.school_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.school_id)
+          .single();
+        setSchoolName(data?.full_name || null);
+      }
+      if (profile?.counselor_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.counselor_id)
+          .single();
+        setCounselorName(data?.full_name || null);
+      }
+    };
+    loadLinkedNames();
+  }, [profile?.mentor_id, profile?.school_id, profile?.counselor_id, supabase]);
 
   const handleGenerateParentCode = async () => {
     if (!profile?.student_id) {
@@ -208,57 +208,57 @@ useEffect(() => {
   };
 
   const handleLinkSchool = async () => {
-  if (!schoolCode.trim()) return;
-  setSubmittingSchool(true);
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      toast.error('Session expired. Please log in again.');
-      return;
+    if (!schoolCode.trim()) return;
+    setSubmittingSchool(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Session expired. Please log in again.');
+        return;
+      }
+
+      const { data: codeRow, error } = await supabase
+        .from('school_invite_codes')
+        .select('id, school_id, used_by')
+        .eq('invite_code', schoolCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid school code. Please check and try again.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This school code has already been used.');
+        return;
+      }
+
+      const { data: updatedRows, error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ school_id: codeRow.school_id })
+        .eq('id', user.id)
+        .select();
+
+      if (updateError) {
+        toast.error('Failed to link school: ' + updateError.message);
+        return;
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        toast.error('Link failed: no matching profile found. Please contact support.');
+        return;
+      }
+
+      await supabase
+        .from('school_invite_codes')
+        .update({ used_by: user.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to school successfully!');
+      setSchoolCode('');
+      onRefresh();
+    } finally {
+      setSubmittingSchool(false);
     }
-
-    const { data: codeRow, error } = await supabase
-      .from('school_invite_codes')
-      .select('id, school_id, used_by')
-      .eq('invite_code', schoolCode.trim().toUpperCase())
-      .single();
-
-    if (error || !codeRow) {
-      toast.error('Invalid school code. Please check and try again.');
-      return;
-    }
-    if (codeRow.used_by) {
-      toast.error('This school code has already been used.');
-      return;
-    }
-
-    const { data: updatedRows, error: updateError } = await supabase
-      .from('user_profiles')
-      .update({ school_id: codeRow.school_id })
-      .eq('id', user.id)
-      .select();
-
-    if (updateError) {
-      toast.error('Failed to link school: ' + updateError.message);
-      return;
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-      toast.error('Link failed: no matching profile found. Please contact support.');
-      return;
-    }
-
-    await supabase
-      .from('school_invite_codes')
-      .update({ used_by: user.id, used_at: new Date().toISOString() })
-      .eq('id', codeRow.id);
-
-    toast.success('Linked to school successfully!');
-    setSchoolCode('');
-    onRefresh();
-  } finally {
-    setSubmittingSchool(false);
-  }
-};
+  };
 
   const handleLinkCounselor = async () => {
     if (!counselorCode.trim()) return;
@@ -310,32 +310,33 @@ useEffect(() => {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <div className="p-4 rounded-xl bg-secondary border border-border">
-  <div className="flex items-center gap-2 mb-1">
-    <Icon name="AcademicCapIcon" size={16} className="text-primary" />
-    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
-  </div>
-  <p className="text-sm font-600 text-foreground">
-    {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
-  </p>
-</div>
-<div className="p-4 rounded-xl bg-secondary border border-border">
-  <div className="flex items-center gap-2 mb-1">
-    <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
-    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
-  </div>
-  <p className="text-sm font-600 text-foreground">
-    {profile?.school_id ? (schoolName || '✅ Linked') : '— Not linked yet'}
-  </p>
-</div>
-<div className="p-4 rounded-xl bg-secondary border border-border">
-  <div className="flex items-center gap-2 mb-1">
-    <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
-    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
-  </div>
-  <p className="text-sm font-600 text-foreground">
-    {profile?.counselor_id ? (counselorName || '✅ Linked') : '— Not linked yet'}
-  </p>
-</div>
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="AcademicCapIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.school_id ? (schoolName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.counselor_id ? (counselorName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+        </div>
 
         <div className="space-y-4">
           <div>
@@ -976,8 +977,6 @@ export default function NetworkLinksContent() {
 
   return (
     <div className="animate-fade-in">
-      
-
       <div className="mb-6">
         <h1 className="text-2xl font-700 text-foreground">Network &amp; Links</h1>
         <p className="text-sm text-muted-foreground mt-1">
