@@ -310,33 +310,32 @@ useEffect(() => {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <div className="p-4 rounded-xl bg-secondary border border-border">
-            <div className="flex items-center gap-2 mb-1">
-              <Icon name="AcademicCapIcon" size={16} className="text-primary" />
-              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
-            </div>
-            <p className="text-sm font-600 text-foreground">
-              {profile?.mentor_id ? '✅ Linked' : '— Not linked yet'}
-            </p>
-          </div>
-          <div className="p-4 rounded-xl bg-secondary border border-border">
-            <div className="flex items-center gap-2 mb-1">
-              <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
-              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
-            </div>
-            <p className="text-sm font-600 text-foreground">
-              {profile?.school_id ? '✅ Linked' : '— Not linked yet'}
-            </p>
-          </div>
-          <div className="p-4 rounded-xl bg-secondary border border-border">
-            <div className="flex items-center gap-2 mb-1">
-              <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
-              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
-            </div>
-            <p className="text-sm font-600 text-foreground">
-              {profile?.counselor_id ? '✅ Linked' : '— Not linked yet'}
-            </p>
-          </div>
-        </div>
+  <div className="flex items-center gap-2 mb-1">
+    <Icon name="AcademicCapIcon" size={16} className="text-primary" />
+    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
+  </div>
+  <p className="text-sm font-600 text-foreground">
+    {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
+  </p>
+</div>
+<div className="p-4 rounded-xl bg-secondary border border-border">
+  <div className="flex items-center gap-2 mb-1">
+    <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
+    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
+  </div>
+  <p className="text-sm font-600 text-foreground">
+    {profile?.school_id ? (schoolName || '✅ Linked') : '— Not linked yet'}
+  </p>
+</div>
+<div className="p-4 rounded-xl bg-secondary border border-border">
+  <div className="flex items-center gap-2 mb-1">
+    <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
+    <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
+  </div>
+  <p className="text-sm font-600 text-foreground">
+    {profile?.counselor_id ? (counselorName || '✅ Linked') : '— Not linked yet'}
+  </p>
+</div>
 
         <div className="space-y-4">
           <div>
