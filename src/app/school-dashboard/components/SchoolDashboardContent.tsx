@@ -114,7 +114,7 @@ export default function SchoolDashboardContent() {
 
       const mentorIds = mentorList.map((m) => m.id);
 
-      // Load students directly linked to this school (or under linked mentors)
+      // Load students directly linked to this school
       const { data: studentData, error: studentErr } = await supabase
         .from('students')
         .select('id, name, grade, mentor_id, avg_score, sessions')
