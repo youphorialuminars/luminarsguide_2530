@@ -574,9 +574,15 @@ export default function NewSessionContent() {
                     <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Icon name={field.icon as any} size={14} className="text-primary" />
                     </div>
-                    <label className="text-sm font-700 text-foreground">
+                    <label className="text-sm font-700 text-foreground flex-1">
                       {field.label} <span className="text-negative">*</span>
                     </label>
+                    <MicButton
+                      onResult={(text) => {
+                        const current = watch(field.key) || '';
+                        setValue(field.key, current ? `${current} ${text}` : text, { shouldValidate: true });
+                      }}
+                    />
                   </div>
                   <textarea
                     className="input-mystic resize-none leading-relaxed"
