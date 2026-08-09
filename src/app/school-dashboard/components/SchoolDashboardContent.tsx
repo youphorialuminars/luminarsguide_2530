@@ -113,19 +113,30 @@ export default function SchoolDashboardContent() {
 
       const mentorIds = mentorList.map((m) => m.id);
 
-      // Load students directly linked to this school
-      const { data: studentData, error: studentErr } = await supabase
-        .from('students')
-        .select('id, name, grade, mentor_id, avg_score, sessions')
-        .eq('school_id', uid);
+      // Load students directly linked to this school from user_profiles
+      const { data: profileStudentData, error: studentErr } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, grade, mentor_id, avg_score, sessions')
+        .eq('school_id', uid)
+        .eq('role', 'student');
 
       if (studentErr) {
         console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
       }
-      setStudents(studentData || []);
 
-      const studentIds = (studentData || []).map((s: StudentRow) => s.id);
+      // Map full_name to name to match the dashboard's student layout
+      const formattedStudents = (profileStudentData || []).map((s: any) => ({
+        id: s.id,
+        name: s.full_name || 'Student',
+        grade: s.grade || '—',
+        mentor_id: s.mentor_id,
+        avg_score: s.avg_score || 0,
+        sessions: s.sessions || 0,
+      }));
 
+      setStudents(formattedStudents);
+      const studentIds = formattedStudents.map((s) => s.id);
+      
       // Load attendance
       if (studentIds.length > 0) {
         const { data: attData } = await supabase
