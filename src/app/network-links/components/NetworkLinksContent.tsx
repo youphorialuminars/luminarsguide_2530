@@ -30,6 +30,39 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
   const [parentLinkCode, setParentLinkCode] = useState<string | null>(null);
   const [generatingParentCode, setGeneratingParentCode] = useState(false);
   const [copiedParentCode, setCopiedParentCode] = useState(false);
+  const [mentorName, setMentorName] = useState<string | null>(null);
+const [schoolName, setSchoolName] = useState<string | null>(null);
+const [counselorName, setCounselorName] = useState<string | null>(null);
+
+useEffect(() => {
+  const loadLinkedNames = async () => {
+    if (profile?.mentor_id) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('id', profile.mentor_id)
+        .single();
+      setMentorName(data?.full_name || null);
+    }
+    if (profile?.school_id) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('id', profile.school_id)
+        .single();
+      setSchoolName(data?.full_name || null);
+    }
+    if (profile?.counselor_id) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('id', profile.counselor_id)
+        .single();
+      setCounselorName(data?.full_name || null);
+    }
+  };
+  loadLinkedNames();
+}, [profile?.mentor_id, profile?.school_id, profile?.counselor_id, supabase]);
 
   useEffect(() => {
     // Load existing parent_link_code for this student
