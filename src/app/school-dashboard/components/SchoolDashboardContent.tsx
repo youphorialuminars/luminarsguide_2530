@@ -98,8 +98,7 @@ export default function SchoolDashboardContent() {
   const loadData = useCallback(async (uid: string) => {
     setIsLoading(true);
     try {
-      // Load linked mentors — school_id in user_profiles stores the school's UUID
-      // This is the deep relational link: user_profiles.school_id = uid (school's auth UUID)
+      // Load linked mentors
       const { data: mentorData, error: mentorErr } = await supabase
         .from('user_profiles')
         .select('id, full_name, email, mentor_code')
@@ -124,38 +123,33 @@ export default function SchoolDashboardContent() {
         console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
       }
       setStudents(studentData || []);
+
       const studentIds = (studentData || []).map((s: StudentRow) => s.id);
 
-        if (studentErr) {
-          console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
-        }
-        setStudents(studentData || []);
+      // Load attendance
+      if (studentIds.length > 0) {
+        const { data: attData } = await supabase
+          .from('attendance')
+          .select('student_id, status')
+          .in('student_id', studentIds);
+        setAttendance(attData || []);
 
-        const studentIds = (studentData || []).map((s: StudentRow) => s.id);
+        // Load parent engagement scores
+        const { data: obsData } = await supabase
+          .from('parent_observations')
+          .select('student_id, submitted_by')
+          .in('student_id', studentIds);
 
-        // Load attendance
-        if (studentIds.length > 0) {
-          const { data: attData } = await supabase
-            .from('attendance')
-            .select('student_id, status')
-            .in('student_id', studentIds);
-          setAttendance(attData || []);
+        const scoreMap: Record<string, number> = {};
+        studentIds.forEach((id: string) => { scoreMap[id] = 0; });
+        (obsData || []).forEach((o: any) => {
+          if (scoreMap[o.student_id] !== undefined) scoreMap[o.student_id]++;
+        });
+        setParentEngagementScores(scoreMap);
+      }
 
-          // Load parent engagement scores
-          const { data: obsData } = await supabase
-            .from('parent_observations')
-            .select('student_id, submitted_by')
-            .in('student_id', studentIds);
-
-          const scoreMap: Record<string, number> = {};
-          studentIds.forEach((id: string) => { scoreMap[id] = 0; });
-          (obsData || []).forEach((o: any) => {
-            if (scoreMap[o.student_id] !== undefined) scoreMap[o.student_id]++;
-          });
-          setParentEngagementScores(scoreMap);
-        }
-
-        // Load sessions
+      // Load sessions
+      if (mentorIds.length > 0) {
         const { data: sessData } = await supabase
           .from('sessions')
           .select('id, mentor_id, topic')
@@ -475,7 +469,7 @@ export default function SchoolDashboardContent() {
             <div className="bg-card border border-border rounded-2xl p-12 text-center">
               <Icon name="UserGroupIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
               <p className="text-muted-foreground font-500">No students found</p>
-              <p className="text-xs text-muted-foreground mt-1">Students will appear here once mentors are linked via school invite codes</p>
+              <p className="text-xs text-muted-foreground mt-1">Students will appear here once linked via school invite codes</p>
             </div>
           ) : (
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
