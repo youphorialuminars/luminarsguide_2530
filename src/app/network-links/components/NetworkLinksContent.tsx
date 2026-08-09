@@ -175,46 +175,57 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
   };
 
   const handleLinkSchool = async () => {
-    if (!schoolCode.trim()) return;
-    setSubmittingSchool(true);
-    try {
-      const { data: codeRow, error } = await supabase
-        .from('school_invite_codes')
-        .select('id, school_id, used_by')
-        .eq('invite_code', schoolCode.trim().toUpperCase())
-        .single();
-
-      if (error || !codeRow) {
-        toast.error('Invalid school code. Please check and try again.');
-        return;
-      }
-      if (codeRow.used_by) {
-        toast.error('This school code has already been used.');
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ school_id: codeRow.school_id })
-        .eq('id', profile.id);
-
-      if (updateError) {
-        toast.error('Failed to link school: ' + updateError.message);
-        return;
-      }
-
-      await supabase
-        .from('school_invite_codes')
-        .update({ used_by: profile.id, used_at: new Date().toISOString() })
-        .eq('id', codeRow.id);
-
-      toast.success('Linked to school successfully!');
-      setSchoolCode('');
-      onRefresh();
-    } finally {
-      setSubmittingSchool(false);
+  if (!schoolCode.trim()) return;
+  setSubmittingSchool(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('Session expired. Please log in again.');
+      return;
     }
-  };
+
+    const { data: codeRow, error } = await supabase
+      .from('school_invite_codes')
+      .select('id, school_id, used_by')
+      .eq('invite_code', schoolCode.trim().toUpperCase())
+      .single();
+
+    if (error || !codeRow) {
+      toast.error('Invalid school code. Please check and try again.');
+      return;
+    }
+    if (codeRow.used_by) {
+      toast.error('This school code has already been used.');
+      return;
+    }
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ school_id: codeRow.school_id })
+      .eq('id', user.id)
+      .select();
+
+    if (updateError) {
+      toast.error('Failed to link school: ' + updateError.message);
+      return;
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      toast.error('Link failed: no matching profile found. Please contact support.');
+      return;
+    }
+
+    await supabase
+      .from('school_invite_codes')
+      .update({ used_by: user.id, used_at: new Date().toISOString() })
+      .eq('id', codeRow.id);
+
+    toast.success('Linked to school successfully!');
+    setSchoolCode('');
+    onRefresh();
+  } finally {
+    setSubmittingSchool(false);
+  }
+};
 
   const handleLinkCounselor = async () => {
     if (!counselorCode.trim()) return;
