@@ -64,7 +64,10 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
       const json = await res.json();
       if (!res.ok) {
         // Fallback: direct Supabase update if RPC fails (e.g. mentor calling for student)
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
+        const digits = String(Math.floor(Math.random() * 900000) + 100000);
+        const code = `${prefix}-${digits}`;
         const { error } = await supabase
           .from('students')
           .update({ parent_link_code: code })
