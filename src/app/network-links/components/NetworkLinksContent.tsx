@@ -129,6 +129,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         let studentRecordId = existingRow?.id;
 
         if (!studentRecordId) {
+          const generatedStudentCode = `STU-${Math.floor(100000 + Math.random() * 900000)}`;
           const { data: newRow, error: insertError } = await supabase
             .from('students')
             .insert({
@@ -136,6 +137,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
               name: profile.full_name || profile.email || 'Student',
               student_email: profile.email || null,
               student_user_id: profile.id,
+              student_code: generatedStudentCode,
             })
             .select('id')
             .single();
