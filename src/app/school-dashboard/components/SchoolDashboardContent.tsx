@@ -114,12 +114,17 @@ export default function SchoolDashboardContent() {
 
       const mentorIds = mentorList.map((m) => m.id);
 
-      // Load students under those mentors
-      if (mentorIds.length > 0) {
-        const { data: studentData, error: studentErr } = await supabase
-          .from('students')
-          .select('id, name, grade, mentor_id, avg_score, sessions')
-          .in('mentor_id', mentorIds);
+      // Load students directly linked to this school (or under linked mentors)
+      const { data: studentData, error: studentErr } = await supabase
+        .from('students')
+        .select('id, name, grade, mentor_id, avg_score, sessions')
+        .eq('school_id', uid);
+
+      if (studentErr) {
+        console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
+      }
+      setStudents(studentData || []);
+      const studentIds = (studentData || []).map((s: StudentRow) => s.id);
 
         if (studentErr) {
           console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
