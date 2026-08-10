@@ -54,20 +54,46 @@ export default function SchoolStudentViewContent() {
     if (!studentId) { router.push('/school-dashboard'); return; }
     const load = async () => {
       setIsLoading(true);
-      const results = await Promise.all([
-        supabase.from('students').select('id, name, grade, avg_score, sessions, topics, trend').eq('id', studentId).single(),
+
+      // Try the full `students` table first (students linked via a mentor)
+      let studentData: any = null;
+      const primaryResult = await supabase
+        .from('students')
+        .select('id, name, grade, avg_score, sessions, topics, trend')
+        .eq('id', studentId)
+        .maybeSingle();
+      studentData = primaryResult.data;
+
+      // Fallback: school-linked students with no mentor only exist in user_profiles
+      if (!studentData) {
+        const fallbackResult = await supabase
+          .from('user_profiles')
+          .select('id, full_name')
+          .eq('id', studentId)
+          .maybeSingle();
+        if (fallbackResult.data) {
+          studentData = {
+            id: fallbackResult.data.id,
+            name: fallbackResult.data.full_name || 'Student',
+            grade: '—',
+            avg_score: 0,
+            sessions: 0,
+            topics: [],
+            trend: 'stable',
+          };
+        }
+      }
+
+      const [taskResult, attResult, sessResult] = await Promise.all([
         supabase.from('student_tasks').select('id, task_description, priority, deadline, status').eq('student_id', studentId).order('created_at', { ascending: false }),
         supabase.from('attendance').select('id, date, status, topic').eq('student_id', studentId).order('date', { ascending: false }).limit(20),
         supabase.from('sessions').select('id, topic, score, created_at').eq('student_id', studentId).order('created_at', { ascending: false }).limit(10),
       ]);
-      const studentData = results[0].data;
-      const taskData = results[1].data;
-      const attData = results[2].data;
-      const sessData = results[3].data;
+
       setStudent(studentData);
-      setTasks(taskData || []);
-      setAttendance(attData || []);
-      setSessions(sessData || []);
+      setTasks(taskResult.data || []);
+      setAttendance(attResult.data || []);
+      setSessions(sessResult.data || []);
       setIsLoading(false);
     };
     load();
