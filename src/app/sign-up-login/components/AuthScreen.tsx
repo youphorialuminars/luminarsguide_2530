@@ -512,6 +512,15 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         const result = await supabase.auth.signUp({
           email: data.email,
           password: data.password,
+          placeholder="Min. 8 chars, 1 uppercase, 1 number"
+            {...register('password', {
+                required: 'Password is required',
+                minLength: { value: 8, message: 'Minimum 8 characters' },
+                pattern: {
+                  value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+                  message: 'Must include 1 uppercase letter, 1 lowercase letter, and 1 number',
+                },
+              })}
           options: {
             data: {
               full_name: data.fullName,
