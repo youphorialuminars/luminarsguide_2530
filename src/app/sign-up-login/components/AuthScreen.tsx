@@ -224,15 +224,8 @@ const onSubmit = async (data: LoginForm) => {
           <input
             className="input-mystic pr-10"
             type={showPassword ? 'text' : 'password'}
-            placeholder="Min. 8 chars, 1 uppercase, 1 number"
-            {...register('password', {
-                required: 'Password is required',
-                minLength: { value: 8, message: 'Minimum 8 characters' },
-                pattern: {
-                  value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
-                  message: 'Must include 1 uppercase letter, 1 lowercase letter, and 1 number',
-                },
-              })}
+            placeholder="Enter your password"
+            {...register('password', { required: 'Password is required' })}
           />
           <button
             type="button"
@@ -937,14 +930,21 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           <label className="block text-sm font-600 text-foreground mb-1.5">
             Password <span className="text-negative">*</span>
           </label>
+          <p className="text-xs text-muted-foreground mb-1.5">
+            Must be at least 8 characters, with 1 uppercase letter, 1 lowercase letter, and 1 number.
+          </p>
           <div className="relative">
             <input
               className="input-mystic pr-10"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Min. 8 characters"
+              placeholder="Min. 8 chars, 1 uppercase, 1 number"
               {...register('password', {
                 required: 'Password is required',
                 minLength: { value: 8, message: 'Minimum 8 characters' },
+                pattern: {
+                  value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+                  message: 'Must include 1 uppercase letter, 1 lowercase letter, and 1 number',
+                },
               })}
             />
             <button
