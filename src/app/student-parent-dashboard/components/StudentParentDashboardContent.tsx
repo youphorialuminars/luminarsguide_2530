@@ -34,6 +34,16 @@ interface Task {
   deadline: string | null;
 }
 
+interface TaskSubmission {
+  id: string;
+  task_id: string;
+  file_url: string;
+  file_name: string;
+  mentor_rating: number | null;
+  mentor_comments: string | null;
+}
+
+
 interface Survey {
   id: string;
   title: string;
@@ -207,6 +217,8 @@ export default function StudentParentDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback'>('overview');
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [taskSubmissions, setTaskSubmissions] = useState<TaskSubmission[]>([]);
+  const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
 
   // Link to Mentor state
@@ -245,12 +257,14 @@ export default function StudentParentDashboardContent() {
             attResult,
             meetResult,
             sessResult,
+            submissionResult,
           ] = await Promise.all([
             supabase.from('student_tasks').select('*').eq('student_id', student.id).order('created_at', { ascending: false }),
             supabase.from('surveys').select('*').eq('mentor_id', student.mentor_id).order('created_at', { ascending: false }),
             supabase.from('attendance').select('attendance_date, status').eq('student_id', student.id).order('attendance_date', { ascending: false }),
             supabase.from('meetings').select('*').eq('student_id', student.id).order('meeting_date', { ascending: false }),
             supabase.from('sessions').select('*').eq('student_id', student.id).order('created_at', { ascending: false }).limit(5),
+            supabase.from('task_submissions').select('*').eq('student_id', student.id),
           ]);
 
           const taskData = taskResult.data;
@@ -264,7 +278,8 @@ export default function StudentParentDashboardContent() {
           setAttendance(attData || []);
           setMeetings(meetData || []);
           setSessions(sessData || []);
-
+          setTaskSubmissions(submissionResult.data || []);
+          
           // Parent leaderboard is strictly in Parent Hub — not shown in student view
         }
       }
@@ -358,6 +373,46 @@ export default function StudentParentDashboardContent() {
       toast.success(`Task marked as "${newStatus}"`);
     }
     setUpdatingTaskId(null);
+  };
+
+  const handleFileUpload = async (task: Task, file: File) => {
+    if (!studentProfile) { toast.error('No student profile linked.'); return; }
+    const maxSizeMB = 20;
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      toast.error(`File too large. Max size is ${maxSizeMB}MB.`);
+      return;
+    }
+    setUploadingTaskId(task.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setUploadingTaskId(null); return; }
+
+    const filePath = `${user.id}/${task.id}/${Date.now()}_${file.name}`;
+    const { error: uploadError } = await supabase.storage.from('task-submissions').upload(filePath, file);
+
+    if (uploadError) {
+      toast.error('Upload failed: ' + uploadError.message);
+      setUploadingTaskId(null);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage.from('task-submissions').getPublicUrl(filePath);
+
+    const { error: insertError } = await supabase.from('task_submissions').insert({
+      task_id: task.id,
+      student_id: studentProfile.id,
+      mentor_id: studentProfile.mentor_id,
+      file_url: urlData.publicUrl,
+      file_name: file.name,
+      file_type: file.type,
+    });
+
+    if (insertError) {
+      toast.error('Failed to record submission: ' + insertError.message);
+    } else {
+      toast.success('File submitted!');
+      loadData();
+    }
+    setUploadingTaskId(null);
   };
 
   const handleSubmitReflection = async () => {
@@ -684,7 +739,8 @@ export default function StudentParentDashboardContent() {
                       </div>
                     </div>
 
-                    {/* Status Selector */}
+                   ={`text-xs font-600 px-3 py-1 rounded-full border transition-all ${
+                            {/* Status Selector */}
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-muted-foreground font-600">Update status:</span>
                       {statusOptions.map((s) => (
@@ -705,8 +761,47 @@ export default function StudentParentDashboardContent() {
                         </button>
                       ))}
                     </div>
+
+                    {/* File Submission */}
+                    <div className="mt-3 pt-3 border-t border-border/50">
+                      <div className="flex items-center gap-2">
+                        <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
+                          {uploadingTaskId === task.id ? (
+                            <><Icon name="ArrowPathIcon" size={12} className="animate-spin" /> Uploading...</>
+                          ) : (
+                            <><Icon name="PaperClipIcon" size={12} /> Attach File</>
+                          )}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov"
+                            disabled={uploadingTaskId === task.id}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleFileUpload(task, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        <span className="text-xs text-muted-foreground">PDF, image, or video · max 20MB</span>
+                      </div>
+                      {taskSubmissions.filter((s) => s.task_id === task.id).map((s) => (
+                        <div key={s.id} className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-secondary/40 text-xs">
+                          <Icon name="DocumentIcon" size={13} className="text-primary flex-shrink-0" />
+                          <a href={s.file_url} target="_blank" rel="noopener noreferrer" className="text-primary truncate flex-1 hover:underline">
+                            {s.file_name}
+                          </a>
+                          {s.mentor_rating ? (
+                            <span className="text-amber-500 flex-shrink-0">{'⭐'.repeat(s.mentor_rating)}</span>
+                          ) : (
+                            <span className="text-muted-foreground flex-shrink-0">Awaiting review</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
+                
                 {globalSearch.trim() && tasks.filter((t) => t.task_description.toLowerCase().includes(globalSearch.toLowerCase())).length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <Icon name="MagnifyingGlassIcon" size={28} className="mx-auto mb-2 opacity-30" />
