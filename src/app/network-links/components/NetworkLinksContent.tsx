@@ -629,6 +629,12 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   useEffect(() => { loadLinkedStudents(); }, [loadLinkedStudents]);
 
   const handleGenerateMentorCode = async () => {
+    if (mentorInviteCode) {
+      const confirmed = window.confirm(
+        "This will invalidate your current code. Anyone who hasn't linked yet using it won't be able to. Continue?"
+      );
+      if (!confirmed) return;
+    }
     setGeneratingMentorCode(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
