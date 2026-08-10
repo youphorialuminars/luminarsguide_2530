@@ -10,6 +10,25 @@ import { toast } from 'sonner';
 import { Toaster } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
+// Function to clean up ugly database errors into short, friendly text
+function formatErrorMessage(error) {
+  if (!error) return "Something went wrong. Please try again.";
+  
+  const rawMessage = typeof error === "string" ? error : (error.message || String(error));
+
+  // If the error is HTML code (like <!DOCTYPE...) or too long
+  if (
+    rawMessage.includes("<!DOCTYPE") || 
+    rawMessage.includes("<html") || 
+    rawMessage.includes("Failed to fetch") ||
+    rawMessage.length > 150
+  ) {
+    return "Incorrect details or mentor code. Please check your inputs and try again.";
+  }
+
+  return rawMessage;
+}
+
 type AuthTab = 'login' | 'signup' | 'reset';
 type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school';
 
@@ -90,15 +109,28 @@ const onSubmit = async (data: LoginForm) => {
       });
 
       if (error) {
-        console.error('[SignIn] auth.signInWithPassword error:', error);
-        setSupabaseError({
-          message: error.message,
-          code: error.status?.toString(),
-        });
-        setError('password', { message: error.message });
-        setIsLoading(false);
-        return;
-      }
+  console.error('[SignIn] auth.signInWithPassword error', error);
+
+  // 1. Check if the error is ugly HTML or a connection failure
+  let cleanMessage = error.message || "An error occurred";
+  if (
+    cleanMessage.includes("<!DOCTYPE") || 
+    cleanMessage.includes("<html") || 
+    cleanMessage.includes("Failed to fetch") ||
+    cleanMessage.length > 150
+  ) {
+    cleanMessage = "Invalid entry. Please check your details and try again.";
+  }
+
+  // 2. Put the clean message on the screen using your specific commands
+  setSupabaseError({
+    message: cleanMessage,
+    code: error.status?.toString(),
+  });
+  setError('password', { message: cleanMessage });
+  setIsLoading(false);
+  return;
+}
 
       // Fetch profile to determine role
       let profile: any = null;
