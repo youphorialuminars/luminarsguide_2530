@@ -1699,6 +1699,6 @@ export default function StudentDashboardContent() {
         />
       )}
     </div>
-  </div>  
+  </>  
   );
 }
