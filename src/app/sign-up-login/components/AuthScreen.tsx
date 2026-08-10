@@ -224,8 +224,15 @@ const onSubmit = async (data: LoginForm) => {
           <input
             className="input-mystic pr-10"
             type={showPassword ? 'text' : 'password'}
-            placeholder="Enter your password"
-            {...register('password', { required: 'Password is required' })}
+            placeholder="Min. 8 chars, 1 uppercase, 1 number"
+            {...register('password', {
+                required: 'Password is required',
+                minLength: { value: 8, message: 'Minimum 8 characters' },
+                pattern: {
+                  value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+                  message: 'Must include 1 uppercase letter, 1 lowercase letter, and 1 number',
+                },
+              })}
           />
           <button
             type="button"
