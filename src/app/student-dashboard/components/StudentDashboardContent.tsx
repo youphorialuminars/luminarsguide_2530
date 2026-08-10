@@ -77,6 +77,15 @@ interface StudentTask {
   created_at: string;
 }
 
+interface TaskSubmission {
+  id: string;
+  task_id: string;
+  file_url: string;
+  file_name: string;
+  mentor_rating: number | null;
+  mentor_comments: string | null;
+}
+
 interface MentorReflection {
   id: string;
   week_start: string;
@@ -311,6 +320,9 @@ export default function StudentDashboardContent() {
   });
   const [addingTask, setAddingTask] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [taskSubmissions, setTaskSubmissions] = useState<TaskSubmission[]>([]);
+  const [gradingForm, setGradingForm] = useState<Record<string, { rating: number; comments: string }>>({});
+  const [savingGradeId, setSavingGradeId] = useState<string | null>(null);
 
   // Reflections / leaderboard state
   const [reflections, setReflections] = useState<MentorReflection[]>([]);
@@ -544,14 +556,16 @@ export default function StudentDashboardContent() {
     setTasksLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setTasksLoading(false); return; }
-    const [taskResult, studentResult] = await Promise.all([
+    const [taskResult, studentResult, submissionResult] = await Promise.all([
       supabase.from('student_tasks').select('*').eq('mentor_id', user.id).order('created_at', { ascending: false }),
       supabase.from('students').select('id, name').eq('mentor_id', user.id),
+      supabase.from('task_submissions').select('*').eq('mentor_id', user.id),
     ]);
     const taskData = taskResult.data;
     const studentData = studentResult.data;
     setTasks(taskData || []);
     setDbStudents(studentData || []);
+    setTaskSubmissions(submissionResult.data || []);
     if (studentData && studentData.length > 0 && !taskForm.student_id) {
       setTaskForm((f) => ({ ...f, student_id: studentData[0].id }));
     }
@@ -688,6 +702,26 @@ export default function StudentDashboardContent() {
       toast.success('Task deleted.');
       setTasks((prev) => prev.filter((t) => t.id !== id));
     }
+  };
+
+  const handleSaveGrade = async (submissionId: string) => {
+    const form = gradingForm[submissionId];
+    if (!form || !form.rating) {
+      toast.error('Please select a rating first.');
+      return;
+    }
+    setSavingGradeId(submissionId);
+    const { error } = await supabase
+      .from('task_submissions')
+      .update({ mentor_rating: form.rating, mentor_comments: form.comments || null, graded_at: new Date().toISOString() })
+      .eq('id', submissionId);
+    if (error) {
+      toast.error('Failed to save review: ' + error.message);
+    } else {
+      toast.success('Review saved!');
+      loadTasks();
+    }
+    setSavingGradeId(null);
   };
 
   // ─── Reflection Handlers ───────────────────────────────────────────────────
@@ -1474,39 +1508,88 @@ export default function StudentDashboardContent() {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {tasks.map((task) => (
-                  <div key={task.id} className="flex items-start gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-xs font-600 text-primary">{getStudentName(task.student_id)}</span>
-                        <PriorityBadge priority={task.priority_rating} />
-                        <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
-                          task.status === 'Completed' ? 'bg-positive/10 text-positive border-positive/20'
-                            : task.status === 'In Progress' ? 'bg-info/10 text-info border-info/20' : 'bg-muted text-muted-foreground border-border'
-                        }`}>{task.status}</span>
+                {tasks.map((task) => {
+                  const submissions = taskSubmissions.filter((s) => s.task_id === task.id);
+                  return (
+                  <div key={task.id} className="flex flex-col gap-2 p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-xs font-600 text-primary">{getStudentName(task.student_id)}</span>
+                          <PriorityBadge priority={task.priority_rating} />
+                          <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
+                            task.status === 'Completed' ? 'bg-positive/10 text-positive border-positive/20'
+                              : task.status === 'In Progress' ? 'bg-info/10 text-info border-info/20' : 'bg-muted text-muted-foreground border-border'
+                          }`}>{task.status}</span>
+                        </div>
+                        <p className="text-sm text-foreground/80 leading-relaxed">{task.task_description}</p>
+                        {task.deadline && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            <Icon name="CalendarDaysIcon" size={11} className="inline mr-1" />
+                            Due: {formatDate(task.deadline)}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-sm text-foreground/80 leading-relaxed">{task.task_description}</p>
-                      {task.deadline && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          <Icon name="CalendarDaysIcon" size={11} className="inline mr-1" />
-                          Due: {formatDate(task.deadline)}
-                        </p>
-                      )}
+                      <button
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
+                        title="Delete task"
+                      >
+                        <Icon name="TrashIcon" size={15} />
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
-                      title="Delete task"
-                    >
-                      <Icon name="TrashIcon" size={15} />
-                    </button>
+
+                    {submissions.length > 0 && (
+                      <div className="pt-2 border-t border-border/50 flex flex-col gap-2">
+                        {submissions.map((s) => {
+                          const current = gradingForm[s.id] || { rating: s.mentor_rating || 0, comments: s.mentor_comments || '' };
+                          return (
+                            <div key={s.id} className="p-2.5 rounded-lg bg-card border border-border">
+                              <a href={s.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1.5 mb-2">
+                                <Icon name="DocumentIcon" size={13} />
+                                {s.file_name}
+                              </a>
+                              {s.mentor_rating ? (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-amber-500">{'⭐'.repeat(s.mentor_rating)}</span>
+                                  {s.mentor_comments && <span className="text-muted-foreground">{s.mentor_comments}</span>}
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex gap-1">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <button
+                                        key={star}
+                                        type="button"
+                                        onClick={() => setGradingForm((f) => ({ ...f, [s.id]: { ...current, rating: star } }))}
+                                      >
+                                        <Icon name="StarIcon" size={16} variant={star <= current.rating ? 'solid' : 'outline'} className={star <= current.rating ? 'text-amber-400' : 'text-muted-foreground'} />
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <textarea
+                                    className="input-mystic text-xs min-h-[50px] resize-none"
+                                    placeholder="Optional comments for the student..."
+                                    value={current.comments}
+                                    onChange={(e) => setGradingForm((f) => ({ ...f, [s.id]: { ...current, comments: e.target.value } }))}
+                                  />
+                                  <button
+                                    className="btn-primary text-xs py-1 px-3 self-start"
+                                    onClick={() => handleSaveGrade(s.id)}
+                                    disabled={savingGradeId === s.id}
+                                  >
+                                    {savingGradeId === s.id ? 'Saving...' : 'Save Review'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  );
+                })}
 
       {/* ── PARENT QUERIES TAB ────────────────────────────────────────────── */}
       {activeTab === 'parent-queries' && (
