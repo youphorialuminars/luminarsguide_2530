@@ -102,18 +102,6 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     setSupabaseError(null);
-    // 1. Password Strength Checker
-  // This rule requires: 8 characters, 1 uppercase, 1 lowercase, and 1 number
-  const strongPasswordRule = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d\w\W]{8,}$/;
-  
-  if (!strongPasswordRule.test(data.password)) {
-    setSupabaseError({
-      message: "Weak password. It must be at least 8 characters long, and include 1 uppercase letter and 1 number.",
-    });
-    setError('password', { message: "Weak password." });
-    setIsLoading(false);
-    return; // This stops the signup process instantly
-  }
     try {
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
