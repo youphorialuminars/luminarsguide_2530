@@ -737,10 +737,9 @@ export default function StudentParentDashboardContent() {
                           {task.task_description}
                         </p>
                       </div>
-                    </div>
+                     </div>
 
-                   ={`text-xs font-600 px-3 py-1 rounded-full border transition-all ${
-                            {/* Status Selector */}
+                    {/* Status Selector */}
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-muted-foreground font-600">Update status:</span>
                       {statusOptions.map((s) => (
