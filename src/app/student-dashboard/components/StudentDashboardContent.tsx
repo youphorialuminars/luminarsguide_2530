@@ -1205,6 +1205,44 @@ export default function StudentDashboardContent() {
             </div>
           </div>
 
+          {/* Feedback from Students */}
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="ChatBubbleLeftRightIcon" size={18} className="text-primary" />
+              Feedback from Students
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {studentFeedback.length} total
+              </span>
+            </h2>
+            {studentFeedback.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No student feedback yet.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {studentFeedback.map((fb, idx) => (
+                  <div key={idx} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-muted-foreground">{getStudentName(fb.student_id)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {fb.created_at ? formatDate(fb.created_at) : ''}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground mb-1.5">
+                      <span>Interaction: {'⭐'.repeat(fb.mentor_interaction_score || 0)}</span>
+                      <span>Listening: {'⭐'.repeat(fb.active_listening_score || 0)}</span>
+                      <span>Clarity: {'⭐'.repeat(fb.teaching_clarity_score || 0)}</span>
+                    </div>
+                    {fb.fruitful_comments && (
+                      <p className="text-sm text-foreground/80 leading-relaxed">{fb.fruitful_comments}</p>
+                    )}
+                    {fb.help_needed_comments && (
+                      <p className="text-xs text-warning mt-1">Needs help with: {fb.help_needed_comments}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Submit Reflection */}
           <div className="card-mystic p-5">
             <div className="flex items-center gap-2 mb-4">
