@@ -116,7 +116,7 @@ export default function SchoolDashboardContent() {
       // Load students directly linked to this school from user_profiles
       const { data: profileStudentData, error: studentErr } = await supabase
         .from('user_profiles')
-        .select('id, full_name, grade, mentor_id, avg_score, sessions')
+        .select('id, full_name, mentor_id')
         .eq('school_id', uid)
         .eq('role', 'student');
 
@@ -128,10 +128,10 @@ export default function SchoolDashboardContent() {
       const formattedStudents = (profileStudentData || []).map((s: any) => ({
         id: s.id,
         name: s.full_name || 'Student',
-        grade: s.grade || '—',
+        grade: '—',
         mentor_id: s.mentor_id,
-        avg_score: s.avg_score || 0,
-        sessions: s.sessions || 0,
+        avg_score: 0,
+        sessions: 0,
       }));
 
       setStudents(formattedStudents);
