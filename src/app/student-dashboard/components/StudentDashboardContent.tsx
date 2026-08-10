@@ -318,6 +318,7 @@ export default function StudentDashboardContent() {
   const [submittingReflection, setSubmittingReflection] = useState(false);
   const [peerStats, setPeerStats] = useState<PeerStats | null>(null);
   const [avgFeedbackScore, setAvgFeedbackScore] = useState(0);
+  const [studentFeedback, setStudentFeedback] = useState<any[]>([]);
   const [reflectionsLoading, setReflectionsLoading] = useState(false);
   const [sessionsThisWeek, setSessionsThisWeek] = useState(0);
 
@@ -565,13 +566,14 @@ export default function StudentDashboardContent() {
 
     const [reflResult, feedbackResult, allReflResult] = await Promise.all([
       supabase.from('mentor_weekly_reflections').select('*').eq('mentor_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('mentor_feedback').select('mentor_interaction_score, active_listening_score, teaching_clarity_score').eq('mentor_id', user.id),
+      supabase.from('mentor_feedback').select('student_id, mentor_interaction_score, active_listening_score, teaching_clarity_score, fruitful_comments, help_needed_comments, created_at').eq('mentor_id', user.id).order('created_at', { ascending: false }),
       supabase.from('mentor_weekly_reflections').select('impact_score'),
     ]);
 
     const reflData = reflResult.data;
     const feedbackData = feedbackResult.data;
     const allReflData = allReflResult.data;
+    setStudentFeedback(feedbackData || []);
 
     setReflections(reflData || []);
 
