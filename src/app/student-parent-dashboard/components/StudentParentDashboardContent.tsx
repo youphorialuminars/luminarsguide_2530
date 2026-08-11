@@ -32,6 +32,7 @@ interface Task {
   status: 'Pending' | 'In Progress' | 'Completed';
   priority_rating: number;
   deadline: string | null;
+  requires_submission: boolean;
 }
 
 interface TaskSubmission {
@@ -762,6 +763,7 @@ export default function StudentParentDashboardContent() {
                     </div>
 
                     {/* File Submission */}
+                    {task.requires_submission && (
                     <div className="mt-3 pt-3 border-t border-border/50">
                       <div className="flex items-center gap-2">
                         <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
@@ -798,6 +800,7 @@ export default function StudentParentDashboardContent() {
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 ))}
                 
