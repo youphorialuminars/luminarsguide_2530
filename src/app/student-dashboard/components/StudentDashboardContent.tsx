@@ -75,6 +75,7 @@ interface StudentTask {
   deadline: string | null;
   status: 'Pending' | 'In Progress' | 'Completed';
   created_at: string;
+  requires_submission: boolean;
 }
 
 interface TaskSubmission {
@@ -317,6 +318,7 @@ export default function StudentDashboardContent() {
     task_description: '',
     priority_rating: 1,
     deadline: '',
+    requires_submission: false,
   });
   const [addingTask, setAddingTask] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -683,12 +685,13 @@ export default function StudentDashboardContent() {
       priority_rating: taskForm.priority_rating,
       deadline: taskForm.deadline || null,
       status: 'Pending',
+      requires_submission: taskForm.requires_submission,
     });
     if (error) {
       toast.error('Failed to assign task: ' + error.message);
     } else {
       toast.success('Task assigned!');
-      setTaskForm((f) => ({ ...f, task_description: '', deadline: '', priority_rating: 1 }));
+      setTaskForm((f) => ({ ...f, task_description: '', deadline: '', priority_rating: 1, requires_submission: false }));
       loadTasks();
     }
     setAddingTask(false);
@@ -1472,7 +1475,7 @@ export default function StudentDashboardContent() {
                     <option value={3}>High</option>
                   </select>
                 </div>
-                <div>
+               <div>
                   <label className="block text-sm font-600 text-foreground mb-1.5">Deadline</label>
                   <input
                     type="date"
@@ -1482,6 +1485,15 @@ export default function StudentDashboardContent() {
                   />
                 </div>
               </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={taskForm.requires_submission}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, requires_submission: e.target.checked }))}
+                  className="w-4 h-4 rounded border-border"
+                />
+                <span className="text-sm text-foreground">Require a file submission for this task</span>
+              </label>
               <button className="btn-primary self-start" onClick={handleAddTask} disabled={addingTask || dbStudents.length === 0}>
                 {addingTask ? (
                   <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Assigning...</>
