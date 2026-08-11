@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import type { Gender } from '@/lib/mockData';
 import StudentCard from './StudentCard';
@@ -263,7 +264,8 @@ function NeedsAttentionModal({
 
 export default function StudentDashboardContent() {
   const supabase = createClient();
-  const [search, setSearch] = useState('');
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get('q') || '');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [filterTrend, setFilterTrend] = useState<FilterOption>('all');
   const [showAddModal, setShowAddModal] = useState(false);
