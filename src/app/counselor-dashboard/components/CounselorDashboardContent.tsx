@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -307,7 +307,8 @@ export default function CounselorDashboardContent() {
   const [generatingReportFor, setGeneratingReportFor] = useState<string | null>(null);
   const [reports, setReports] = useState<Record<string, string>>({});
   const [generatingCode, setGeneratingCode] = useState(false);
-  const [globalSearch, setGlobalSearch] = useState('');
+  const searchParams = useSearchParams();
+  const [globalSearch, setGlobalSearch] = useState(searchParams.get('q') || '');
   const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
 
   const loadData = useCallback(async () => {
