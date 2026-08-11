@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -80,7 +80,10 @@ export default function SchoolDashboardContent() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+  
+  const searchParams = useSearchParams();const [activeTab, setActiveTab] = useState<DashboardTab>(
+    (searchParams.get('tab') as DashboardTab) || 'overview'
+  );
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [schoolName, setSchoolName] = useState<string>('School');
   const [mentors, setMentors] = useState<MentorProfile[]>([]);
@@ -90,8 +93,10 @@ export default function SchoolDashboardContent() {
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
-  const [mentorSearch, setMentorSearch] = useState('');
-  const [studentSearch, setStudentSearch] = useState('');
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get('q') || '';
+  const [mentorSearch, setMentorSearch] = useState(initialQ);
+  const [studentSearch, setStudentSearch] = useState(initialQ);
   const [globalSearch, setGlobalSearch] = useState('');
   const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
 
