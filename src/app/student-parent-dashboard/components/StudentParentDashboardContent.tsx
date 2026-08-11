@@ -220,6 +220,7 @@ export default function StudentParentDashboardContent() {
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [taskSubmissions, setTaskSubmissions] = useState<TaskSubmission[]>([]);
   const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [globalSearch, setGlobalSearch] = useState('');
 
   // Link to Mentor state
@@ -376,13 +377,25 @@ export default function StudentParentDashboardContent() {
     setUpdatingTaskId(null);
   };
 
-  const handleFileUpload = async (task: Task, file: File) => {
-    if (!studentProfile) { toast.error('No student profile linked.'); return; }
+  const handleFileSelect = (task: Task, file: File) => {
     const maxSizeMB = 20;
     if (file.size > maxSizeMB * 1024 * 1024) {
       toast.error(`File too large. Max size is ${maxSizeMB}MB.`);
       return;
     }
+    setPendingFiles((prev) => ({ ...prev, [task.id]: file }));
+  };
+
+  const handleCancelUpload = (taskId: string) => {
+    setPendingFiles((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+  };
+
+  const handleFileUpload = async (task: Task, file: File) => {
+    if (!studentProfile) { toast.error('No student profile linked.'); return; }
     setUploadingTaskId(task.id);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setUploadingTaskId(null); return; }
