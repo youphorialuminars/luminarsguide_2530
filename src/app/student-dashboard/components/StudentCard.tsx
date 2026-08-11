@@ -50,6 +50,11 @@ export default function StudentCard({ student }: StudentCardProps) {
               {student.name}
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">{student.grade}</p>
+            {(student.age || student.gender) && (
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                {[student.age ? `Age ${student.age}` : null, student.gender].filter(Boolean).join(' · ')}
+              </p>
+            )}
           </div>
         </div>
         <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-600 ${trend.bg} ${trend.color}`}>
@@ -78,12 +83,14 @@ export default function StudentCard({ student }: StudentCardProps) {
       <div className="flex flex-wrap gap-1.5">
         {student.primaryTopics.slice(0, 2).map((topic) => {
           const short = topic.split(' — ')[1] || topic.split(' — ')[0];
+          const shortLabel = short.length > 22 ? short.slice(0, 22) + '…' : short;
           return (
             <span
               key={`topic-${student.id}-${short.slice(0, 10)}`}
               className="status-badge badge-muted text-xs"
+              title={topic}
             >
-              {short}
+              {shortLabel}
             </span>
           );
         })}

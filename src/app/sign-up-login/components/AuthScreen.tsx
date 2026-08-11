@@ -5,143 +5,213 @@ import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
-import { mockMentors, SECURITY_QUESTIONS } from '@/lib/mockData';
+
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
+
+// Function to clean up ugly database errors into short, friendly text
+function formatErrorMessage(error) {
+  if (!error) return "Something went wrong. Please try again.";
+  
+  const rawMessage = typeof error === "string" ? error : (error.message || String(error));
+
+  // If the error is HTML code (like <!DOCTYPE...) or too long
+  if (
+    rawMessage.includes("<!DOCTYPE") || 
+    rawMessage.includes("<html") || 
+    rawMessage.includes("Failed to fetch") ||
+    rawMessage.length > 150
+  ) {
+    return "Incorrect details or mentor code. Please check your inputs and try again.";
+  }
+
+  return rawMessage;
+}
 
 type AuthTab = 'login' | 'signup' | 'reset';
+type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school';
+
+// ─── Visible Error Banner ──────────────────────────────────────────────────────
+interface SupabaseErrorBannerProps {
+  message: string;
+  code?: string;
+  onDismiss: () => void;
+}
+
+function SupabaseErrorBanner({ message, code, onDismiss }: SupabaseErrorBannerProps) {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border-2 border-red-500/50 text-red-400 animate-fade-in">
+      <Icon name="ExclamationTriangleIcon" size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-700 text-red-400 mb-0.5">
+          {code ? `Supabase Error ${code}` : 'Supabase Error'}
+        </p>
+        <p className="text-xs text-red-300 break-words leading-relaxed">{message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex-shrink-0 text-red-400/60 hover:text-red-400 transition-colors"
+      >
+        <Icon name="XMarkIcon" size={14} />
+      </button>
+    </div>
+  );
+}
 
 interface LoginForm {
-  mentorId: string;
+  email: string;
   password: string;
   rememberMe: boolean;
 }
 
 interface SignupForm {
   fullName: string;
-  mentorId: string;
   email: string;
   password: string;
   confirmPassword: string;
-  securityQuestion: string;
-  securityAnswer: string;
+  role: UserRole;
+  inviteCode: string;
+  parentLinkCode: string;
+  counselorInviteCode: string;
+  schoolInviteCode: string;
 }
 
 interface ResetForm {
-  mentorId: string;
-  securityQuestion: string;
-  securityAnswer: string;
+  email: string;
   newPassword: string;
   confirmNewPassword: string;
-}
-
-function CredentialsBox({ onUse }: { onUse: (id: string, pw: string) => void }) {
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 1500);
-  };
-
-  return (
-    <div className="mt-6 rounded-xl border border-border bg-secondary/60 p-4">
-      <p className="section-label mb-3">Demo Credentials</p>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Mentor ID</p>
-            <p className="text-sm font-600 text-foreground font-mono">mentor-101</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn-ghost text-xs py-1 px-2"
-              onClick={() => copyToClipboard('mentor-101', 'id')}
-            >
-              <Icon name={copiedField === 'id' ? 'CheckIcon' : 'ClipboardIcon'} size={14} />
-              {copiedField === 'id' ? 'Copied' : 'Copy'}
-            </button>
-            <button
-              className="btn-primary text-xs py-1 px-3"
-              onClick={() => onUse('mentor-101', 'Luminar@2026')}
-            >
-              Use
-            </button>
-          </div>
-        </div>
-        <div className="border-t border-border pt-2 flex items-center justify-between gap-2">
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Password</p>
-            <p className="text-sm font-600 text-foreground font-mono">Luminar@2026</p>
-          </div>
-          <button
-            className="btn-ghost text-xs py-1 px-2"
-            onClick={() => copyToClipboard('Luminar@2026', 'pw')}
-          >
-            <Icon name={copiedField === 'pw' ? 'CheckIcon' : 'ClipboardIcon'} size={14} />
-            {copiedField === 'pw' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
+  const supabase = createClient();
 
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
     setError,
+    setValue,
   } = useForm<LoginForm>();
 
-  const onSubmit = async (data: LoginForm) => {
+const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
-    // BACKEND INTEGRATION: Replace with real authentication API call
-    await new Promise((r) => setTimeout(r, 1200));
-
-    const mentor = mockMentors.find(
-      (m) => m.id === data.mentorId && m.password === data.password
-    );
-
-    if (!mentor) {
-      setError('password', {
-        message: "Invalid credentials — use the demo accounts below to sign in",
+    setSupabaseError(null);
+    try {
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
       });
+
+      if (error) {
+  console.error('[SignIn] auth.signInWithPassword error', error);
+
+  // 1. Check if the error is ugly HTML or a connection failure
+  let cleanMessage = error.message || "An error occurred";
+  if (
+    cleanMessage.includes("<!DOCTYPE") || 
+    cleanMessage.includes("<html") || 
+    cleanMessage.includes("Failed to fetch") ||
+    cleanMessage.length > 150
+  ) {
+    cleanMessage = "Invalid entry. Please check your details and try again.";
+  }
+
+  // 2. Put the clean message on the screen using your specific commands
+  setSupabaseError({
+    message: cleanMessage,
+    code: error.status?.toString(),
+  });
+  setError('password', { message: cleanMessage });
+  setIsLoading(false);
+  return;
+}
+
+      // Fetch profile to determine role
+      let profile: any = null;
+      try {
+        const result = await supabase
+          .from('user_profiles')
+          .select('role, full_name')
+          .eq('id', authData.user.id)
+          .single();
+        profile = result.data;
+      } catch (profileFetchErr: any) {
+        console.error('[SignIn] user_profiles fetch exception:', profileFetchErr);
+      }
+
+      // Fallback: use user_metadata if profile fetch fails
+      const role: string =
+        profile?.role ||
+        authData.user.user_metadata?.role ||
+        'mentor';
+
+      const fullName: string =
+        profile?.full_name ||
+        authData.user.user_metadata?.full_name ||
+        authData.user.email ||
+        'User';
+
+      // Set role cookie for middleware route guarding
+      document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=Lax; Secure`;
+
+      toast.success(`Welcome back, ${fullName}!`);
+
+      // Hard-redirect based on role
+      if (role === 'student_parent' || role === 'student') {
+        window.location.href = '/student-parent-dashboard';
+      } else if (role === 'parent') {
+        window.location.href = '/parents-hub';
+      } else if (role === 'counselor') {
+        window.location.href = '/counselor-dashboard';
+      } else if (role === 'school') {
+        window.location.href = '/school-dashboard';
+      } else {
+        window.location.href = '/student-dashboard';
+      }
+    } catch (err: any) {
+      console.error('[SignIn] Unexpected exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign in failed. Please try again.' });
+      setError('password', { message: 'Sign in failed. Please try again.' });
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    toast.success(`Welcome back, ${mentor.name}!`);
-    router.push('/student-dashboard');
-  };
-
-  const handleUseDemoCredentials = (id: string, pw: string) => {
-    setValue('mentorId', id);
-    setValue('password', pw);
   };
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+
+      {/* Visible Supabase Error Banner */}
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
       <div>
         <label className="block text-sm font-600 text-foreground mb-1.5">
-          Mentor ID <span className="text-negative">*</span>
+          Email Address <span className="text-negative">*</span>
         </label>
-        <p className="text-xs text-muted-foreground mb-2">Your unique registration number</p>
         <input
           className="input-mystic"
-          placeholder="e.g. mentor-101"
-          {...register('mentorId', { required: 'Mentor ID is required' })}
+          type="email"
+          placeholder="your.name@school.edu"
+          {...register('email', {
+            required: 'Email is required',
+            pattern: { value: /^\S+@\S+\.\S+$/, message: 'Enter a valid email' },
+          })}
         />
-        {errors.mentorId && (
+        {errors.email && (
           <p className="text-xs text-negative mt-1.5 flex items-center gap-1">
             <Icon name="ExclamationCircleIcon" size={13} />
-            {errors.mentorId.message}
+            {errors.email.message}
           </p>
         )}
       </div>
@@ -161,7 +231,6 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             type="button"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setShowPassword(!showPassword)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
           >
             <Icon name={showPassword ? 'EyeSlashIcon' : 'EyeIcon'} size={17} />
           </button>
@@ -216,48 +285,558 @@ function LoginForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           Create account
         </button>
       </p>
-
-      <CredentialsBox onUse={handleUseDemoCredentials} />
     </form>
   );
 }
 
+// Invite code format: 3 uppercase letters, hyphen, 6 digits (e.g. ABC-123456)
+const INVITE_CODE_REGEX = /^[A-Z]{3}-\d{6}$/;
+
+function validateInviteCode(val: string): boolean {
+  return INVITE_CODE_REGEX.test(val.trim().toUpperCase());
+}
+
 function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
+  // Email confirmation OTP step
+  const [awaitingOtp, setAwaitingOtp] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const supabase = createClient();
 
   const {
     register,
     handleSubmit,
     watch,
     formState: { errors },
-  } = useForm<SignupForm>();
+    setError,
+  } = useForm<SignupForm>({ defaultValues: { role: 'mentor' } });
 
   const password = watch('password');
+  const selectedRole = watch('role');
 
-  const onSubmit = async (_data: SignupForm) => {
+  const onSubmit = async (data: SignupForm) => {
     setIsLoading(true);
-    // BACKEND INTEGRATION: Replace with real mentor registration API call
-    await new Promise((r) => setTimeout(r, 1500));
-    setIsLoading(false);
-    setSuccess(true);
-    toast.success('Account created! You can now sign in.');
+    setSupabaseError(null);
+    try {
+      // For student: validate mentor invite code (LLL-DDDDDD) and resolve mentor UUID
+      let linkedStudentId: string | null = null;
+      let linkedMentorId: string | null = null;
+
+      if (data.role === 'student') {
+        const code = data.inviteCode?.trim().toUpperCase() || '';
+        if (!code || !validateInviteCode(code)) {
+          setError('inviteCode', { message: 'Please enter a valid invite code in format ABC-123456' });
+          setIsLoading(false);
+          return;
+        }
+        try {
+          const { data: mentorRow, error: mentorLookupErr } = await supabase
+            .from('user_profiles')
+            .select('id, role, mentor_code')
+            .eq('mentor_code', code)
+            .eq('role', 'mentor')
+            .maybeSingle();
+
+          if (mentorLookupErr) {
+            console.error('[SignUp] mentor lookup error:', mentorLookupErr);
+            setSupabaseError({ message: `Mentor code lookup failed: ${mentorLookupErr.message}`, code: mentorLookupErr.code });
+            setError('inviteCode', { message: `Lookup failed: ${mentorLookupErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!mentorRow) {
+            setError('inviteCode', { message: 'Invalid invite code. Please check with your mentor.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedMentorId = mentorRow.id;
+        } catch (mentorErr: any) {
+          console.error('[SignUp] mentor lookup exception:', mentorErr);
+          setSupabaseError({ message: `Mentor lookup exception: ${mentorErr?.message || String(mentorErr)}` });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // For parent: validate parent link code (LLL-DDDDDD) and resolve student UUID
+      let parentLinkedStudentId: string | null = null;
+      if (data.role === 'parent') {
+        const code = data.parentLinkCode?.trim().toUpperCase() || '';
+        if (!code || !validateInviteCode(code)) {
+          setError('parentLinkCode', { message: 'Please enter a valid Parent Link Code in format ABC-123456' });
+          setIsLoading(false);
+          return;
+        }
+        try {
+          const { data: studentRow, error: plcErr } = await supabase
+            .from('students')
+            .select('id, parent_link_code, mentor_id')
+            .eq('parent_link_code', code)
+            .maybeSingle();
+
+          if (plcErr) {
+            console.error('[SignUp] parent link code lookup error:', plcErr);
+            setSupabaseError({ message: `Parent link code lookup failed: ${plcErr.message}`, code: plcErr.code });
+            setError('parentLinkCode', { message: `Lookup failed: ${plcErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!studentRow) {
+            setError('parentLinkCode', { message: 'Invalid Parent Link Code. Ask your child to generate one from their dashboard.' });
+            setIsLoading(false);
+            return;
+          }
+          parentLinkedStudentId = studentRow.id;
+        } catch (plcEx: any) {
+          console.error('[SignUp] parent link code exception:', plcEx);
+          setSupabaseError({ message: `Parent link code exception: ${plcEx?.message || String(plcEx)}` });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // For mentor with counselor invite code: validate (LLL-DDDDDD) and resolve counselor UUID
+      let linkedCounselorId: string | null = null;
+      if (data.role === 'mentor' && data.counselorInviteCode && data.counselorInviteCode.trim().length > 0) {
+        const code = data.counselorInviteCode.trim().toUpperCase();
+        if (!validateInviteCode(code)) {
+          setError('counselorInviteCode', { message: 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)' });
+          setIsLoading(false);
+          return;
+        }
+        try {
+          const { data: codeRow, error: codeErr } = await supabase
+            .from('counselor_mentor_invites')
+            .select('id, counselor_id, used_by')
+            .eq('invite_code', code)
+            .maybeSingle();
+
+          if (codeErr) {
+            console.error('[SignUp] counselor invite lookup error:', codeErr);
+            setSupabaseError({ message: `Counselor code lookup failed: ${codeErr.message}`, code: codeErr.code });
+            setError('counselorInviteCode', { message: `Lookup failed: ${codeErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!codeRow) {
+            setError('counselorInviteCode', { message: 'Invalid counselor code. Please check with your counselor.' });
+            setIsLoading(false);
+            return;
+          }
+          if (codeRow.used_by) {
+            setError('counselorInviteCode', { message: 'This counselor code has already been used.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedCounselorId = codeRow.counselor_id;
+        } catch (cEx: any) {
+          console.error('[SignUp] counselor invite exception:', cEx);
+          setSupabaseError({ message: `Counselor invite exception: ${cEx?.message || String(cEx)}` });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // For mentor/student with school invite code: validate (LLL-DDDDDD) and resolve school UUID
+      let linkedSchoolId: string | null = null;
+      const schoolCodeRoles: UserRole[] = ['mentor', 'student'];
+      if (schoolCodeRoles.includes(data.role) && data.schoolInviteCode && data.schoolInviteCode.trim().length > 0) {
+        const code = data.schoolInviteCode.trim().toUpperCase();
+        if (!validateInviteCode(code)) {
+          setError('schoolInviteCode', { message: 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)' });
+          setIsLoading(false);
+          return;
+        }
+        try {
+          const { data: schoolCodeRow, error: schoolCodeErr } = await supabase
+            .from('school_invite_codes')
+            .select('id, school_id, used_by')
+            .eq('invite_code', code)
+            .maybeSingle();
+
+          if (schoolCodeErr) {
+            console.error('[SignUp] school invite lookup error:', schoolCodeErr);
+            setSupabaseError({ message: `School code lookup failed: ${schoolCodeErr.message}`, code: schoolCodeErr.code });
+            setError('schoolInviteCode', { message: `Lookup failed: ${schoolCodeErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!schoolCodeRow) {
+            setError('schoolInviteCode', { message: 'Invalid school code. Please check with your school.' });
+            setIsLoading(false);
+            return;
+          }
+          if (schoolCodeRow.used_by) {
+            setError('schoolInviteCode', { message: 'This school code has already been used.' });
+            setIsLoading(false);
+            return;
+          }
+          linkedSchoolId = schoolCodeRow.school_id;
+        } catch (sEx: any) {
+          console.error('[SignUp] school invite exception:', sEx);
+          setSupabaseError({ message: `School invite exception: ${sEx?.message || String(sEx)}` });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Generate mentor_code for mentors in LLL-DDDDDD format
+      const generateMentorCode = (): string => {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
+        const digits = String(Math.floor(Math.random() * 900000) + 100000);
+        return `${prefix}-${digits}`;
+      };
+
+      const mentorCode =
+        data.role === 'mentor' ? generateMentorCode() : null;
+
+      const roleValue = data.role;
+
+      // ── Step 1: Create auth user ──────────────────────────────────────────────
+      let authData: any = null;
+      try {
+        const result = await supabase.auth.signUp({
+          email: data.email,
+          password: data.password,
+          options: {
+            data: {
+              full_name: data.fullName,
+              role: roleValue,
+              mentor_code: mentorCode,
+              mentor_id: linkedMentorId || null,
+              student_id: linkedStudentId || null,
+              linked_student_id: parentLinkedStudentId || null,
+              counselor_id: linkedCounselorId || null,
+              school_id: linkedSchoolId || null,
+            },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+
+        if (result.error) {
+          console.error('[SignUp] auth.signUp error:', result.error);
+          const signUpError = result.error;
+          setSupabaseError({
+            message: signUpError.message,
+            code: signUpError.status?.toString() || (signUpError as any).code,
+          });
+          if (
+            signUpError.message?.toLowerCase().includes('user already registered') ||
+            signUpError.message?.toLowerCase().includes('already registered') ||
+            signUpError.status === 422
+          ) {
+            setError('email', {
+              message: 'An account with this email already exists. Please sign in instead.',
+            });
+          } else {
+            setError('email', { message: signUpError.message });
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        if (!result.data?.user) {
+          setSupabaseError({ message: 'Sign up returned no user object. Please try again.' });
+          setError('email', { message: 'Sign up failed: no user returned. Please try again.' });
+          setIsLoading(false);
+          return;
+        }
+
+        authData = result.data;
+      } catch (authEx: any) {
+        console.error('[SignUp] auth.signUp exception:', authEx);
+        setSupabaseError({ message: `Auth exception: ${authEx?.message || String(authEx)}` });
+        setError('email', { message: authEx?.message || 'Sign up failed. Please try again.' });
+        setIsLoading(false);
+        return;
+      }
+
+      // ── Step 2: Explicit INSERT into user_profiles ────────────────────────────
+      const profilePayload: Record<string, any> = {
+        id: authData.user.id,
+        email: data.email,
+        full_name: data.fullName,
+        role: roleValue,
+        mentor_code: mentorCode,
+        mentor_id: linkedMentorId || null,
+        student_id: linkedStudentId || null,
+        linked_student_id: parentLinkedStudentId || null,
+        counselor_id: linkedCounselorId || null,
+        school_id: linkedSchoolId || null,
+      };
+
+      try {
+        const { error: profileInsertError } = await supabase
+          .from('user_profiles')
+          .upsert(profilePayload, { onConflict: 'id' });
+
+        if (profileInsertError) {
+          console.error('[SignUp] user_profiles INSERT/UPSERT error:', profileInsertError);
+          setSupabaseError({
+            message: `Profile INSERT failed: ${profileInsertError.message} | Details: ${profileInsertError.details || 'none'} | Hint: ${profileInsertError.hint || 'none'}`,
+            code: profileInsertError.code,
+          });
+          toast.error(`⚠️ Profile write error (${profileInsertError.code}): ${profileInsertError.message}`);
+        } else {
+          console.log('[SignUp] user_profiles INSERT/UPSERT succeeded for user:', authData.user.id);
+        }
+      } catch (profileEx: any) {
+        console.error('[SignUp] user_profiles INSERT exception:', profileEx);
+        setSupabaseError({ message: `Profile INSERT exception: ${profileEx?.message || String(profileEx)}` });
+        toast.error(`⚠️ Profile write exception: ${profileEx?.message || String(profileEx)}`);
+      }
+      // ── Step 2.5: For students, create their matching `students` table row ──
+      if (data.role === 'student' && linkedMentorId && authData?.user?.id) {
+        try {
+          const { data: existingRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_user_id', authData.user.id)
+            .maybeSingle();
+
+          let studentRecordId = existingRow?.id;
+
+          if (!studentRecordId) {
+            const generatedStudentCode = `STU-${Math.floor(100000 + Math.random() * 900000)}`;
+            const { data: newRow, error: insertError } = await supabase
+              .from('students')
+              .insert({
+                mentor_id: linkedMentorId,
+                name: data.fullName,
+                student_email: data.email,
+                student_user_id: authData.user.id,
+                student_code: generatedStudentCode,
+              })
+              .select('id')
+              .single();
+
+            if (insertError) {
+              console.error('[SignUp] students INSERT error:', insertError);
+              toast.error(`⚠️ Student record creation failed: ${insertError.message}`);
+            } else {
+              studentRecordId = newRow.id;
+            }
+          }
+
+          if (studentRecordId) {
+            await supabase
+              .from('user_profiles')
+              .update({ student_id: studentRecordId })
+              .eq('id', authData.user.id);
+          }
+        } catch (studentRowEx: any) {
+          console.error('[SignUp] students row creation exception:', studentRowEx);
+        }
+      }
+
+      // ── Step 3: Redeem parent link code via SECURITY DEFINER RPC ────────────
+      if (data.role === 'parent' && data.parentLinkCode && authData?.user?.id) {
+        try {
+          const { error: redeemErr } = await supabase.rpc('redeem_parent_link_code', {
+            p_parent_id: authData.user.id,
+            p_link_code: data.parentLinkCode.trim().toUpperCase(),
+          });
+          if (redeemErr) {
+            console.error('[SignUp] redeem_parent_link_code error:', redeemErr);
+            toast.error(`Parent link: ${redeemErr.message}`);
+          } else {
+            console.log('[SignUp] Parent link code redeemed successfully.');
+          }
+        } catch (redeemEx: any) {
+          console.error('[SignUp] redeem_parent_link_code exception:', redeemEx);
+        }
+      }
+
+      // ── Step 4: Mark invite codes as used ────────────────────────────────────
+      if (data.role === 'mentor' && linkedCounselorId && data.counselorInviteCode) {
+        try {
+          const { error: cmiErr } = await supabase
+            .from('counselor_mentor_invites')
+            .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+            .eq('invite_code', data.counselorInviteCode.trim().toUpperCase());
+          if (cmiErr) {
+            console.error('[SignUp] counselor_mentor_invites update error:', cmiErr);
+          }
+        } catch (cmiEx: any) {
+          console.error('[SignUp] counselor_mentor_invites update exception:', cmiEx);
+        }
+      }
+
+      if (linkedSchoolId && data.schoolInviteCode) {
+        try {
+          const { error: sciErr } = await supabase
+            .from('school_invite_codes')
+            .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
+            .eq('invite_code', data.schoolInviteCode.trim().toUpperCase());
+          if (sciErr) {
+            console.error('[SignUp] school_invite_codes update error:', sciErr);
+          }
+        } catch (sciEx: any) {
+          console.error('[SignUp] school_invite_codes update exception:', sciEx);
+        }
+      }
+
+      // ── Step 5: Auto sign-in and redirect to role-specific dashboard ──────────
+      try {
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        });
+
+        if (signInErr) {
+          console.error('[SignUp] Auto sign-in failed:', signInErr);
+          // Check if email confirmation is required (Supabase returns email_not_confirmed)
+          if (
+            signInErr.message?.toLowerCase().includes('email not confirmed') ||
+            signInErr.message?.toLowerCase().includes('email_not_confirmed') ||
+            (signInErr as any).code === 'email_not_confirmed'
+          ) {
+            setOtpEmail(data.email);
+            setAwaitingOtp(true);
+            setIsLoading(false);
+            toast.info('Please check your email and enter the verification code below.');
+            return;
+          }
+          // Auth succeeded but auto sign-in failed — fall back to manual sign-in
+          toast.success('Account created! Please sign in to continue.');
+          setIsLoading(false);
+          onSwitchTab('login');
+          return;
+        }
+
+        // Set role cookie
+        document.cookie = `luminar_role=${roleValue}; path=/; max-age=604800; SameSite=None; Secure`;
+        toast.success(`Welcome, ${data.fullName}! Your account is ready.`);
+
+        // Redirect to role-specific dashboard
+        if (roleValue === 'student_parent' || roleValue === 'student') {
+          router.push('/student-parent-dashboard');
+        } else if (roleValue === 'parent') {
+          router.push('/parents-hub');
+        } else if (roleValue === 'counselor') {
+          router.push('/counselor-dashboard');
+        } else if (roleValue === 'school') {
+          router.push('/school-dashboard');
+        } else {
+          router.push('/student-dashboard');
+        }
+      } catch (signInEx: any) {
+        console.error('[SignUp] Auto sign-in exception:', signInEx);
+        toast.success('Account created! Please sign in to continue.');
+        setIsLoading(false);
+        onSwitchTab('login');
+      }
+
+    } catch (err: any) {
+      console.error('[SignUp] Outer catch exception:', err);
+      setSupabaseError({ message: err?.message || 'Sign up failed. Please try again.' });
+      setError('email', { message: err?.message || 'Sign up failed. Please try again.' });
+      setIsLoading(false);
+    }
   };
 
-  if (success) {
+  // ─── OTP Verification Handler ──────────────────────────────────────────────
+  const handleVerifyOtp = async () => {
+    if (!otpCode.trim()) { setOtpError('Please enter the verification code.'); return; }
+    setVerifyingOtp(true);
+    setOtpError(null);
+    try {
+      const { data: verifyData, error: verifyErr } = await supabase.auth.verifyOtp({
+        email: otpEmail,
+        token: otpCode.trim(),
+        type: 'signup',
+      });
+      if (verifyErr) {
+        console.error('[OTP] verifyOtp error:', verifyErr);
+        setOtpError(verifyErr.message || 'Invalid or expired code. Please try again.');
+        setVerifyingOtp(false);
+        return;
+      }
+      // OTP verified — session is now active
+      const role: string = verifyData?.user?.user_metadata?.role || 'mentor';
+      document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=None; Secure`;
+      toast.success('Email verified! Welcome to Luminar\'s Guide.');
+      if (role === 'student_parent' || role === 'student') {
+        router.push('/student-parent-dashboard');
+      } else if (role === 'parent') {
+        router.push('/parents-hub');
+      } else if (role === 'counselor') {
+        router.push('/counselor-dashboard');
+      } else if (role === 'school') {
+        router.push('/school-dashboard');
+      } else {
+        router.push('/student-dashboard');
+      }
+    } catch (err: any) {
+      console.error('[OTP] exception:', err);
+      setOtpError(err?.message || 'Verification failed. Please try again.');
+    }
+    setVerifyingOtp(false);
+  };
+
+  // ─── OTP Step UI ───────────────────────────────────────────────────────────
+  if (awaitingOtp) {
     return (
-      <div className="flex flex-col items-center gap-4 py-8 animate-fade-in">
-        <div className="w-16 h-16 rounded-full bg-positive/10 flex items-center justify-center">
-          <Icon name="CheckBadgeIcon" size={36} className="text-positive" />
+      <div className="flex flex-col gap-5 animate-fade-in">
+        <div className="flex flex-col items-center gap-3 py-4">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+            <Icon name="EnvelopeIcon" size={32} className="text-primary" />
+          </div>
+          <h3 className="text-xl font-700 text-foreground text-center">Check Your Email</h3>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            We sent a verification code to <span className="font-600 text-foreground">{otpEmail}</span>. Enter it below to confirm your account.
+          </p>
         </div>
-        <h3 className="text-xl font-700 text-foreground">Account Created!</h3>
-        <p className="text-sm text-muted-foreground text-center max-w-xs">
-          Your mentor account is ready. Sign in with your Mentor ID and password to get started.
-        </p>
-        <button className="btn-primary mt-2" onClick={() => onSwitchTab('login')}>
-          <Icon name="ArrowRightOnRectangleIcon" size={16} />
-          Go to Sign In
+
+        {otpError && (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border-2 border-red-500/50 text-red-400 animate-fade-in">
+            <Icon name="ExclamationTriangleIcon" size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+            <p className="text-xs text-red-300 break-words leading-relaxed">{otpError}</p>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Verification Code <span className="text-negative">*</span>
+          </label>
+          <input
+            className="input-mystic text-center font-mono tracking-[0.4em] text-lg"
+            placeholder="Enter code"
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyOtp(); }}
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground mt-1.5">Enter the 6-digit code from your email.</p>
+        </div>
+
+        <button
+          type="button"
+          className="btn-primary w-full"
+          onClick={handleVerifyOtp}
+          disabled={verifyingOtp}
+        >
+          {verifyingOtp ? (
+            <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Verifying...</>
+          ) : (
+            <><Icon name="CheckCircleIcon" size={16} /> Verify & Continue</>
+          )}
+        </button>
+
+        <button
+          type="button"
+          className="btn-ghost w-full text-sm"
+          onClick={() => { setAwaitingOtp(false); setOtpCode(''); setOtpError(null); }}
+        >
+          <Icon name="ArrowLeftIcon" size={14} />
+          Back to Sign Up
         </button>
       </div>
     );
@@ -265,34 +844,67 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-600 text-foreground mb-1.5">
-            Full Name <span className="text-negative">*</span>
-          </label>
-          <input
-            className="input-mystic"
-            placeholder="Dr. Kavita Rao"
-            {...register('fullName', { required: 'Full name is required' })}
-          />
-          {errors.fullName && (
-            <p className="text-xs text-negative mt-1">{errors.fullName.message}</p>
-          )}
+      {/* Visible Supabase Error Banner */}
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
+      {/* Role Selection */}
+      <div>
+        <label className="block text-sm font-600 text-foreground mb-2">
+          I am joining as <span className="text-negative">*</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { value: 'mentor', label: 'Mentor', icon: 'AcademicCapIcon', desc: 'I guide students' },
+            { value: 'student', label: 'Student', icon: 'UserIcon', desc: 'I have a mentor invite code' },
+            { value: 'parent', label: 'Parent', icon: 'HomeIcon', desc: 'I have a parent link code' },
+            { value: 'counselor', label: 'Counselor', icon: 'ShieldCheckIcon', desc: 'I supervise mentors' },
+            { value: 'school', label: 'School', icon: 'BuildingLibraryIcon', desc: 'Institutional account' },
+          ].map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex flex-col gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                selectedRole === opt.value
+                  ? 'border-primary bg-primary/5' : 'border-border bg-secondary/40 hover:border-primary/40'
+              }`}
+            >
+              <input
+                type="radio"
+                value={opt.value}
+                className="sr-only"
+                {...register('role', { required: true })}
+              />
+              <div className="flex items-center gap-2">
+                <Icon
+                  name={opt.icon as any}
+                  size={15}
+                  className={selectedRole === opt.value ? 'text-primary' : 'text-muted-foreground'}
+                />
+                <span className="text-xs font-600 text-foreground">{opt.label}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">{opt.desc}</p>
+            </label>
+          ))}
         </div>
-        <div>
-          <label className="block text-sm font-600 text-foreground mb-1.5">
-            Mentor ID <span className="text-negative">*</span>
-          </label>
-          <p className="text-xs text-muted-foreground mb-1">Choose a unique registration number</p>
-          <input
-            className="input-mystic"
-            placeholder="e.g. mentor-202"
-            {...register('mentorId', { required: 'Mentor ID is required' })}
-          />
-          {errors.mentorId && (
-            <p className="text-xs text-negative mt-1">{errors.mentorId.message}</p>
-          )}
-        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-600 text-foreground mb-1.5">
+          Full Name <span className="text-negative">*</span>
+        </label>
+        <input
+          className="input-mystic"
+          placeholder="Your full name"
+          {...register('fullName', { required: 'Full name is required' })}
+        />
+        {errors.fullName && (
+          <p className="text-xs text-negative mt-1">{errors.fullName.message}</p>
+        )}
       </div>
 
       <div>
@@ -318,14 +930,21 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           <label className="block text-sm font-600 text-foreground mb-1.5">
             Password <span className="text-negative">*</span>
           </label>
+          <p className="text-xs text-muted-foreground mb-1.5">
+            Must be at least 8 characters, with 1 uppercase letter, 1 lowercase letter, and 1 number.
+          </p>
           <div className="relative">
             <input
               className="input-mystic pr-10"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Min. 8 characters"
+              placeholder="Min. 8 chars, 1 uppercase, 1 number"
               {...register('password', {
                 required: 'Password is required',
                 minLength: { value: 8, message: 'Minimum 8 characters' },
+                pattern: {
+                  value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+                  message: 'Must include 1 uppercase letter, 1 lowercase letter, and 1 number',
+                },
               })}
             />
             <button
@@ -359,38 +978,151 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-600 text-foreground mb-1.5">
-          Security Question <span className="text-negative">*</span>
-        </label>
-        <p className="text-xs text-muted-foreground mb-2">Used to reset your password securely</p>
-        <select
-          className="input-mystic"
-          {...register('securityQuestion', { required: 'Please choose a security question' })}
-        >
-          <option value="">Select a security question...</option>
-          {SECURITY_QUESTIONS.map((q) => (
-            <option key={`sq-${q.slice(0, 20)}`} value={q}>{q}</option>
-          ))}
-        </select>
-        {errors.securityQuestion && (
-          <p className="text-xs text-negative mt-1">{errors.securityQuestion.message}</p>
-        )}
-      </div>
+      {/* Invite Code — only for student */}
+      {selectedRole === 'student' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Mentor Invite Code <span className="text-negative">*</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Enter the code provided by your mentor (format: ABC-123456).
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
+              {...register('inviteCode', {
+                required: selectedRole === 'student' ? 'Invite code is required' : false,
+                validate: (val) => {
+                  if (selectedRole !== 'student') return true;
+                  if (!val || !validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="KeyIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.inviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.inviteCode.message}</p>
+          )}
+        </div>
+      )}
 
-      <div>
-        <label className="block text-sm font-600 text-foreground mb-1.5">
-          Security Answer <span className="text-negative">*</span>
-        </label>
-        <input
-          className="input-mystic"
-          placeholder="Your answer (case-insensitive)"
-          {...register('securityAnswer', { required: 'Security answer is required' })}
-        />
-        {errors.securityAnswer && (
-          <p className="text-xs text-negative mt-1">{errors.securityAnswer.message}</p>
-        )}
-      </div>
+      {/* Parent Link Code — only for parent */}
+      {selectedRole === 'parent' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Parent Link Code <span className="text-negative">*</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Enter the code generated by your child from their Student Dashboard → Network &amp; Links (format: ABC-123456).
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
+              {...register('parentLinkCode', {
+                required: selectedRole === 'parent' ? 'Parent Link Code is required' : false,
+                validate: (val) => {
+                  if (selectedRole !== 'parent') return true;
+                  if (!val || !validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="HomeIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.parentLinkCode && (
+            <p className="text-xs text-negative mt-1">{errors.parentLinkCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Counselor Invite Code — optional for mentors */}
+      {selectedRole === 'mentor' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Counselor Invite Code <span className="text-muted-foreground font-400">(optional)</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            If your counselor provided a code, enter it here to link your account (format: ABC-123456).
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
+              {...register('counselorInviteCode', {
+                validate: (val) => {
+                  if (!val || val.trim() === '') return true;
+                  if (!validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="ShieldCheckIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.counselorInviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.counselorInviteCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* School Invite Code — optional for mentors and students */}
+      {(selectedRole === 'mentor' || selectedRole === 'student') && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            School Invite Code <span className="text-muted-foreground font-400">(optional)</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            If your school provided a code, enter it here to link your account (format: ABC-123456).
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
+              {...register('schoolInviteCode', {
+                validate: (val) => {
+                  if (!val || val.trim() === '') return true;
+                  if (!validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="BuildingLibraryIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.schoolInviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.schoolInviteCode.message}</p>
+          )}
+        </div>
+      )}
 
       <div className="flex items-start gap-2 p-3 rounded-xl bg-secondary/60 border border-border">
         <Icon name="InformationCircleIcon" size={16} className="text-info mt-0.5 flex-shrink-0" />
@@ -412,7 +1144,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         ) : (
           <>
             <Icon name="UserPlusIcon" size={16} />
-            Create Mentor Account
+            Create Account
           </>
         )}
       </button>
@@ -432,162 +1164,92 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
 }
 
 function ResetPasswordForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
-  const [step, setStep] = useState<1 | 2>(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [verifiedMentorId, setVerifiedMentorId] = useState('');
+  const [sent, setSent] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<{ message: string; code?: string } | null>(null);
+  const supabase = createClient();
 
-  const step1Form = useForm<{ mentorId: string; securityQuestion: string; securityAnswer: string }>();
-  const step2Form = useForm<{ newPassword: string; confirmNewPassword: string }>();
-  const watchNewPassword = step2Form.watch('newPassword');
+  const { register, handleSubmit, formState: { errors } } = useForm<{ email: string }>();
 
-  const onStep1Submit = async (data: { mentorId: string; securityQuestion: string; securityAnswer: string }) => {
+  const onSubmit = async (data: { email: string }) => {
     setIsLoading(true);
-    // BACKEND INTEGRATION: Verify mentor ID + security answer
-    await new Promise((r) => setTimeout(r, 1000));
-    const mentor = mockMentors.find(
-      (m) =>
-        m.id === data.mentorId &&
-        m.securityQuestion === data.securityQuestion &&
-        m.securityAnswer.toLowerCase() === data.securityAnswer.toLowerCase()
-    );
-    setIsLoading(false);
-    if (!mentor) {
-      step1Form.setError('securityAnswer', { message: 'Verification failed. Check your Mentor ID and answer.' });
-      return;
+    setSupabaseError(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      });
+      if (error) {
+        console.error('[ResetPassword] resetPasswordForEmail error:', error);
+        setSupabaseError({ message: error.message, code: error.status?.toString() || (error as any).code });
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(false);
+      setSent(true);
+      toast.success('Password reset email sent!');
+    } catch (err: any) {
+      console.error('[ResetPassword] exception:', err);
+      setSupabaseError({ message: err?.message || 'Reset failed. Please try again.' });
+      setIsLoading(false);
     }
-    setVerifiedMentorId(data.mentorId);
-    setStep(2);
   };
 
-  const onStep2Submit = async (_data: { newPassword: string; confirmNewPassword: string }) => {
-    setIsLoading(true);
-    // BACKEND INTEGRATION: Update password for verifiedMentorId
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsLoading(false);
-    toast.success('Password reset successfully! Please sign in.');
-    onSwitchTab('login');
-  };
+  if (sent) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-8 animate-fade-in">
+        <div className="w-16 h-16 rounded-full bg-info/10 flex items-center justify-center">
+          <Icon name="EnvelopeIcon" size={32} className="text-info" />
+        </div>
+        <h3 className="text-xl font-700 text-foreground">Check Your Email</h3>
+        <p className="text-sm text-muted-foreground text-center max-w-xs">
+          We sent a password reset link to your email address.
+        </p>
+        <button className="btn-ghost mt-2" onClick={() => onSwitchTab('login')}>
+          <Icon name="ArrowLeftIcon" size={14} />
+          Back to Sign In
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5">
+      {supabaseError && (
+        <SupabaseErrorBanner
+          message={supabaseError.message}
+          code={supabaseError.code}
+          onDismiss={() => setSupabaseError(null)}
+        />
+      )}
+
       <div className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20">
         <Icon name="ShieldCheckIcon" size={18} className="text-warning flex-shrink-0" />
         <p className="text-sm text-foreground/80 leading-relaxed">
-          {step === 1
-            ? 'Verify your identity using your Mentor ID and security question.'
-            : 'You have been verified. Set your new password below.'}
+          Enter your email address and we will send you a reset link.
         </p>
       </div>
 
-      <div className="flex items-center gap-2 mb-1">
-        {[1, 2].map((s) => (
-          <React.Fragment key={`reset-step-${s}`}>
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 transition-all ${
-                step >= s ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              {step > s ? <Icon name="CheckIcon" size={13} /> : s}
-            </div>
-            {s < 2 && <div className={`flex-1 h-0.5 rounded-full ${step > s ? 'bg-primary' : 'bg-muted'}`} />}
-          </React.Fragment>
-        ))}
-      </div>
-
-      {step === 1 && (
-        <form onSubmit={step1Form.handleSubmit(onStep1Submit)} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-600 text-foreground mb-1.5">Mentor ID</label>
-            <input
-              className="input-mystic"
-              placeholder="Your unique registration number"
-              {...step1Form.register('mentorId', { required: 'Mentor ID is required' })}
-            />
-            {step1Form.formState.errors.mentorId && (
-              <p className="text-xs text-negative mt-1">{step1Form.formState.errors.mentorId.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-600 text-foreground mb-1.5">Security Question</label>
-            <select
-              className="input-mystic"
-              {...step1Form.register('securityQuestion', { required: 'Please select your security question' })}
-            >
-              <option value="">Select the question you chose during sign-up...</option>
-              {SECURITY_QUESTIONS.map((q) => (
-                <option key={`reset-sq-${q.slice(0, 20)}`} value={q}>{q}</option>
-              ))}
-            </select>
-            {step1Form.formState.errors.securityQuestion && (
-              <p className="text-xs text-negative mt-1">{step1Form.formState.errors.securityQuestion.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-600 text-foreground mb-1.5">Your Answer</label>
-            <input
-              className="input-mystic"
-              placeholder="Type your answer"
-              {...step1Form.register('securityAnswer', { required: 'Security answer is required' })}
-            />
-            {step1Form.formState.errors.securityAnswer && (
-              <p className="text-xs text-negative mt-1">{step1Form.formState.errors.securityAnswer.message}</p>
-            )}
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={isLoading}>
-            {isLoading ? (
-              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Verifying...</>
-            ) : (
-              <><Icon name="ShieldCheckIcon" size={16} /> Verify Identity</>
-            )}
-          </button>
-        </form>
-      )}
-
-      {step === 2 && (
-        <form onSubmit={step2Form.handleSubmit(onStep2Submit)} className="flex flex-col gap-4">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-positive/10 border border-positive/20">
-            <Icon name="CheckCircleIcon" size={15} className="text-positive" />
-            <p className="text-xs text-positive font-600">Identity verified for {verifiedMentorId}</p>
-          </div>
-          <div>
-            <label className="block text-sm font-600 text-foreground mb-1.5">New Password</label>
-            <input
-              className="input-mystic"
-              type="password"
-              placeholder="Min. 8 characters"
-              {...step2Form.register('newPassword', {
-                required: 'New password is required',
-                minLength: { value: 8, message: 'Minimum 8 characters' },
-              })}
-            />
-            {step2Form.formState.errors.newPassword && (
-              <p className="text-xs text-negative mt-1">{step2Form.formState.errors.newPassword.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-600 text-foreground mb-1.5">Confirm New Password</label>
-            <input
-              className="input-mystic"
-              type="password"
-              placeholder="Repeat new password"
-              {...step2Form.register('confirmNewPassword', {
-                required: 'Please confirm your new password',
-                validate: (val) => val === watchNewPassword || 'Passwords do not match',
-              })}
-            />
-            {step2Form.formState.errors.confirmNewPassword && (
-              <p className="text-xs text-negative mt-1">{step2Form.formState.errors.confirmNewPassword.message}</p>
-            )}
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={isLoading}>
-            {isLoading ? (
-              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Resetting...</>
-            ) : (
-              <><Icon name="LockClosedIcon" size={16} /> Reset Password</>
-            )}
-          </button>
-        </form>
-      )}
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+        <div>
+          <label className="block text-sm font-600 text-foreground mb-1.5">Email Address</label>
+          <input
+            className="input-mystic"
+            type="email"
+            placeholder="your.name@school.edu"
+            {...register('email', { required: 'Email is required' })}
+          />
+          {errors.email && (
+            <p className="text-xs text-negative mt-1">{errors.email.message}</p>
+          )}
+        </div>
+        <button type="submit" className="btn-primary w-full" disabled={isLoading}>
+          {isLoading ? (
+            <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Sending...</>
+          ) : (
+            <><Icon name="EnvelopeIcon" size={16} /> Send Reset Link</>
+          )}
+        </button>
+      </form>
 
       <button
         type="button"
@@ -616,11 +1278,9 @@ export default function AuthScreen() {
 
       {/* Left Brand Panel */}
       <div className="hidden lg:flex lg:w-[45%] xl:w-[42%] mystic-gradient-panel flex-col justify-between p-10 relative overflow-hidden">
-        {/* Decorative blobs */}
         <div className="absolute top-10 right-10 w-64 h-64 blob-gold opacity-30 pointer-events-none" />
         <div className="absolute bottom-20 left-5 w-80 h-80 blob-lavender opacity-20 pointer-events-none" />
 
-        {/* Top logo */}
         <div className="flex items-center gap-3 relative z-10">
           <AppLogo size={44} />
           <span className="text-white font-800 text-xl tracking-tight">
@@ -628,7 +1288,6 @@ export default function AuthScreen() {
           </span>
         </div>
 
-        {/* Center content */}
         <div className="relative z-10 flex flex-col gap-6 max-w-sm">
           <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center backdrop-blur-sm border border-white/20">
             <Icon name="AcademicCapIcon" size={32} className="text-white" />
@@ -658,7 +1317,6 @@ export default function AuthScreen() {
           </div>
         </div>
 
-        {/* Bottom quote */}
         <div className="relative z-10 p-4 rounded-xl bg-white/10 border border-white/15 backdrop-blur-sm">
           <p className="text-white/80 text-sm italic leading-relaxed">
             &ldquo;The art of teaching is the art of assisting discovery.&rdquo;
@@ -670,13 +1328,11 @@ export default function AuthScreen() {
       {/* Right Form Panel */}
       <div className="flex-1 flex flex-col justify-center items-center p-6 sm:p-10 bg-background overflow-y-auto">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
           <div className="flex lg:hidden items-center gap-2.5 mb-8 justify-center">
             <AppLogo size={38} />
             <span className="font-800 text-lg text-foreground">Luminar&apos;s Guide</span>
           </div>
 
-          {/* Tab header */}
           {activeTab !== 'reset' && (
             <div className="flex gap-1 p-1 rounded-xl bg-secondary mb-6 border border-border">
               {(['login', 'signup'] as const).map((tab) => (
@@ -700,7 +1356,7 @@ export default function AuthScreen() {
             <div className="mb-6">
               <h2 className="text-2xl font-700 text-foreground">Reset Password</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Answer your security question to regain access
+                We will send a reset link to your email
               </p>
             </div>
           )}
@@ -710,7 +1366,7 @@ export default function AuthScreen() {
               <div className="mb-6">
                 <h2 className="text-2xl font-700 text-foreground">Welcome Back</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Sign in to your mentor portal
+                  Sign in to your portal
                 </p>
               </div>
               <LoginForm onSwitchTab={setActiveTab} />
@@ -722,7 +1378,7 @@ export default function AuthScreen() {
               <div className="mb-6">
                 <h2 className="text-2xl font-700 text-foreground">Join Luminar&apos;s Guide</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Create your mentor account to get started
+                  Create your account to get started
                 </p>
               </div>
               <SignupForm onSwitchTab={setActiveTab} />

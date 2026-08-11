@@ -10,6 +10,10 @@ const navItems = [
   { label: 'Dashboard', href: '/student-dashboard', icon: 'UserGroupIcon' },
   { label: 'New Session', href: '/new-session', icon: 'PlusCircleIcon' },
   { label: 'Analysis', href: '/student-analysis-history', icon: 'ChartBarIcon' },
+  { label: 'Student Portal', href: '/student-parent-dashboard', icon: 'AcademicCapIcon' },
+  { label: 'Counselor', href: '/counselor-dashboard', icon: 'ShieldCheckIcon' },
+  { label: 'School', href: '/school-dashboard', icon: 'BuildingLibraryIcon' },
+  { label: 'Settings', href: '/settings', icon: 'Cog6ToothIcon' },
 ] as const;
 
 export default function Topbar() {

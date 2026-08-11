@@ -1,0 +1,1006 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import Icon from '@/components/ui/AppIcon';
+import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
+
+interface LinkedStudent {
+  id: string;
+  name: string;
+  grade: string;
+  student_user_id: string | null;
+}
+
+interface InviteCode {
+  id: string;
+  invite_code: string;
+  used_by: string | null;
+  created_at: string;
+}
+function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () => void }) {
+  const supabase = createClient();
+  const [mentorCode, setMentorCode] = useState('');
+  const [schoolCode, setSchoolCode] = useState('');
+  const [counselorCode, setCounselorCode] = useState('');
+  const [submittingMentor, setSubmittingMentor] = useState(false);
+  const [submittingSchool, setSubmittingSchool] = useState(false);
+  const [submittingCounselor, setSubmittingCounselor] = useState(false);
+  const [parentLinkCode, setParentLinkCode] = useState<string | null>(null);
+  const [generatingParentCode, setGeneratingParentCode] = useState(false);
+  const [copiedParentCode, setCopiedParentCode] = useState(false);
+  const [mentorName, setMentorName] = useState<string | null>(null);
+  const [schoolName, setSchoolName] = useState<string | null>(null);
+  const [counselorName, setCounselorName] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load existing parent_link_code for this student
+    if (profile?.student_id) {
+      supabase
+        .from('students')
+        .select('parent_link_code')
+        .eq('id', profile.student_id)
+        .single()
+        .then(({ data }) => {
+          if (data?.parent_link_code) setParentLinkCode(data.parent_link_code);
+        });
+    }
+  }, [profile?.student_id, supabase]);
+
+  useEffect(() => {
+    const loadLinkedNames = async () => {
+      if (profile?.mentor_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.mentor_id)
+          .single();
+        setMentorName(data?.full_name || null);
+      }
+      if (profile?.school_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.school_id)
+          .single();
+        setSchoolName(data?.full_name || null);
+      }
+      if (profile?.counselor_id) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', profile.counselor_id)
+          .single();
+        setCounselorName(data?.full_name || null);
+      }
+    };
+    loadLinkedNames();
+  }, [profile?.mentor_id, profile?.school_id, profile?.counselor_id, supabase]);
+
+  const handleGenerateParentCode = async () => {
+    if (!profile?.student_id) {
+      toast.error('No student profile linked. Please contact your mentor.');
+      return;
+    }
+    setGeneratingParentCode(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error('Not authenticated'); return; }
+
+      const res = await fetch('/api/invite-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'generate_student_link', studentId: profile.student_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        // Fallback: direct Supabase update if RPC fails (e.g. mentor calling for student)
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
+        const digits = String(Math.floor(Math.random() * 900000) + 100000);
+        const code = `${prefix}-${digits}`;
+        const { error } = await supabase
+          .from('students')
+          .update({ parent_link_code: code })
+          .eq('id', profile.student_id);
+        if (error) { toast.error('Failed to generate code: ' + error.message); return; }
+        setParentLinkCode(code);
+        toast.success('Parent Link Code generated!');
+        return;
+      }
+      setParentLinkCode(json.code);
+      toast.success('Parent Link Code generated!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error generating code');
+    } finally {
+      setGeneratingParentCode(false);
+    }
+  };
+
+  const handleCopyParentCode = () => {
+    if (!parentLinkCode) return;
+    navigator.clipboard?.writeText(parentLinkCode);
+    setCopiedParentCode(true);
+    setTimeout(() => setCopiedParentCode(false), 2000);
+    toast.success('Parent Link Code copied!');
+  };
+
+ const handleLinkMentor = async () => {
+    if (!mentorCode.trim()) return;
+    setSubmittingMentor(true);
+    try {
+      const { data: mentorProfile, error } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, mentor_code')
+        .eq('mentor_code', mentorCode.trim().toUpperCase())
+        .eq('role', 'mentor')
+        .single();
+
+      if (error || !mentorProfile) {
+        toast.error('Invalid mentor code. Please check and try again.');
+        return;
+      }
+
+      // Update student's profile with mentor_id
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ mentor_id: mentorProfile.id })
+        .eq('id', profile.id);
+
+      if (updateError) {
+        toast.error('Failed to link mentor: ' + updateError.message);
+        return;
+      }
+
+      // Ensure a matching row exists in the `students` table for this account
+      if (!profile.student_id) {
+        const { data: existingRow } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_user_id', profile.id)
+          .maybeSingle();
+
+        let studentRecordId = existingRow?.id;
+
+        if (!studentRecordId) {
+          const generatedStudentCode = `STU-${Math.floor(100000 + Math.random() * 900000)}`;
+          const { data: newRow, error: insertError } = await supabase
+            .from('students')
+            .insert({
+              mentor_id: mentorProfile.id,
+              name: profile.full_name || profile.email || 'Student',
+              student_email: profile.email || null,
+              student_user_id: profile.id,
+              student_code: generatedStudentCode,
+            })
+            .select('id')
+            .single();
+
+          if (insertError) {
+            toast.error('Linked to mentor, but failed to create student record: ' + insertError.message);
+          } else {
+            studentRecordId = newRow.id;
+          }
+        } else {
+          // Row already existed (e.g. from a previous partial link) — just update mentor_id
+          await supabase
+            .from('students')
+            .update({ mentor_id: mentorProfile.id })
+            .eq('id', studentRecordId);
+        }
+
+        if (studentRecordId) {
+          await supabase
+            .from('user_profiles')
+            .update({ student_id: studentRecordId })
+            .eq('id', profile.id);
+        }
+      }
+
+      toast.success(`Linked to mentor: ${mentorProfile.full_name}`);
+      setMentorCode('');
+      onRefresh();
+    } finally {
+      setSubmittingMentor(false);
+    }
+  };
+
+  const handleLinkSchool = async () => {
+    if (!schoolCode.trim()) return;
+    setSubmittingSchool(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Session expired. Please log in again.');
+        return;
+      }
+
+      const { data: codeRow, error } = await supabase
+        .from('school_invite_codes')
+        .select('id, school_id, used_by')
+        .eq('invite_code', schoolCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid school code. Please check and try again.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This school code has already been used.');
+        return;
+      }
+
+      const { data: updatedRows, error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ school_id: codeRow.school_id })
+        .eq('id', user.id)
+        .select();
+
+      if (updateError) {
+        toast.error('Failed to link school: ' + updateError.message);
+        return;
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        toast.error('Link failed: no matching profile found. Please contact support.');
+        return;
+      }
+
+      await supabase
+        .from('school_invite_codes')
+        .update({ used_by: user.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to school successfully!');
+      setSchoolCode('');
+      onRefresh();
+    } finally {
+      setSubmittingSchool(false);
+    }
+  };
+
+  const handleLinkCounselor = async () => {
+    if (!counselorCode.trim()) return;
+    setSubmittingCounselor(true);
+    try {
+      const { data: codeRow, error } = await supabase
+        .from('counselor_mentor_invites')
+        .select('id, counselor_id, used_by')
+        .eq('invite_code', counselorCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid counselor code. Please check and try again.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This counselor code has already been used.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ counselor_id: codeRow.counselor_id })
+        .eq('id', profile.id);
+
+      if (updateError) {
+        toast.error('Failed to link counselor: ' + updateError.message);
+        return;
+      }
+
+      await supabase
+        .from('counselor_mentor_invites')
+        .update({ used_by: profile.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to counselor successfully!');
+      setCounselorCode('');
+      onRefresh();
+    } finally {
+      setSubmittingCounselor(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="card-elevated p-6">
+        <h2 className="text-lg font-700 text-foreground mb-1">Your Connections</h2>
+        <p className="text-sm text-muted-foreground mb-5">Enter codes to link yourself to a mentor, school, or counselor.</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="AcademicCapIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.school_id ? (schoolName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.counselor_id ? (counselorName || '✅ Linked') : '— Not linked yet'}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter Mentor Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. MTR-ABCD12"
+                value={mentorCode}
+                onChange={(e) => setMentorCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkMentor()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkMentor}
+                disabled={submittingMentor || !mentorCode.trim()}
+              >
+                {submittingMentor ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter School Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. SCH-XYZ789"
+                value={schoolCode}
+                onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkSchool()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkSchool}
+                disabled={submittingSchool || !schoolCode.trim()}
+              >
+                {submittingSchool ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter Counselor Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. CNS-ABCD12"
+                value={counselorCode}
+                onChange={(e) => setCounselorCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkCounselor()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkCounselor}
+                disabled={submittingCounselor || !counselorCode.trim()}
+              >
+                {submittingCounselor ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Parent Link Code Section */}
+      <div className="card-elevated p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center">
+            <Icon name="HomeIcon" size={18} className="text-violet-500" />
+          </div>
+          <div>
+            <h2 className="text-base font-700 text-foreground">Parent Link Code</h2>
+            <p className="text-xs text-muted-foreground">Share this code with your parent so they can link to your account.</p>
+          </div>
+        </div>
+
+        {parentLinkCode ? (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-violet-500/5 border border-violet-500/20">
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground mb-1">Your Parent Link Code</p>
+              <p className="text-2xl font-800 text-violet-600 font-mono tracking-widest">{parentLinkCode}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your parent enters this during sign-up under the "Parent" role.
+              </p>
+            </div>
+            <button
+              onClick={handleCopyParentCode}
+              className="btn-ghost text-xs flex-shrink-0"
+            >
+              <Icon name={copiedParentCode ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} className={copiedParentCode ? 'text-positive' : ''} />
+              {copiedParentCode ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="p-4 rounded-xl bg-secondary/60 border border-border text-center">
+              <Icon name="HomeIcon" size={28} className="mx-auto mb-2 text-muted-foreground opacity-40" />
+              <p className="text-sm text-muted-foreground">No parent link code generated yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">Generate one to allow your parent to link their account.</p>
+            </div>
+            <button
+              className="btn-primary self-start"
+              onClick={handleGenerateParentCode}
+              disabled={generatingParentCode}
+            >
+              {generatingParentCode ? (
+                <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Generating...</>
+              ) : (
+                <><Icon name="KeyIcon" size={15} /> Generate Parent Code</>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Counselor / School Section ───────────────────────────────────────────────
+function CounselorSchoolSection({ profile }: { profile: any }) {
+  const supabase = createClient();
+  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const table = profile?.role === 'school' ? 'school_invite_codes' : 'counselor_mentor_invites';
+  const idField = profile?.role === 'school' ? 'school_id' : 'counselor_id';
+
+  const loadCodes = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from(table)
+      .select('*')
+      .eq(idField, profile.id)
+      .order('created_at', { ascending: false });
+    setInviteCodes(data || []);
+    setLoading(false);
+  }, [supabase, table, idField, profile?.id]);
+
+  useEffect(() => { loadCodes(); }, [loadCodes]);
+
+  const generateCode = async () => {
+    setGenerating(true);
+    try {
+      // Check if a code already exists for this user
+      const { data: existing } = await supabase
+        .from(table)
+        .select('invite_code')
+        .eq(idField, profile.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.invite_code) {
+        toast.success(`Your existing code: ${existing.invite_code}`, { duration: 5000 });
+        loadCodes();
+      } else {
+        // Only generate a new code if none exists
+        const prefix = profile?.role === 'school' ? 'SCH' : 'CNS';
+        const code = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        const { error } = await supabase.from(table).insert({
+          [idField]: profile.id,
+          invite_code: code,
+        });
+        if (error) {
+          toast.error('Failed to generate code: ' + error.message);
+        } else {
+          toast.success('Invite code generated!');
+          loadCodes();
+        }
+      }
+    } catch {
+      toast.error('Failed to get/generate code.');
+    }
+    setGenerating(false);
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopied(code);
+    setTimeout(() => setCopied(null), 2000);
+    toast.success('Code copied to clipboard!');
+  };
+
+  return (
+    <div className="card-elevated p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-700 text-foreground">Your Invite Codes</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Share these codes with {profile?.role === 'school' ? 'mentors and students' : 'mentors'} to link them to your {profile?.role === 'school' ? 'school' : 'counselor group'}.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={generateCode} disabled={generating}>
+          {generating ? (
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Icon name="PlusIcon" size={16} />
+          )}
+          Generate Code
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : inviteCodes.length === 0 ? (
+        <div className="text-center py-10">
+          <Icon name="QrCodeIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No invite codes yet. Generate your first one above.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {inviteCodes.map((code) => (
+            <div
+              key={code.id}
+              className={`flex items-center justify-between p-3.5 rounded-xl border ${
+                code.used_by ? 'bg-muted/50 border-border opacity-60' : 'bg-secondary border-border'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Icon name="KeyIcon" size={14} className="text-primary" />
+                </div>
+                <div>
+                  <p className="font-700 text-foreground font-mono tracking-widest text-sm">{code.invite_code}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {code.used_by ? '✅ Used' : '⏳ Available'} · {new Date(code.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+              {!code.used_by && (
+                <button
+                  onClick={() => copyCode(code.invite_code)}
+                  className="btn-ghost text-xs"
+                >
+                  <Icon name={copied === code.invite_code ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} />
+                  {copied === code.invite_code ? 'Copied!' : 'Copy'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Mentor Section ───────────────────────────────────────────────────────────
+function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => void }) {
+  const supabase = createClient();
+  const [counselorCode, setCounselorCode] = useState('');
+  const [schoolCode, setSchoolCode] = useState('');
+  const [submittingCounselor, setSubmittingCounselor] = useState(false);
+  const [submittingSchool, setSubmittingSchool] = useState(false);
+  const [linkedStudents, setLinkedStudents] = useState<LinkedStudent[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [unlinking, setUnlinking] = useState<string | null>(null);
+  // Mentor invite code state
+  const [mentorInviteCode, setMentorInviteCode] = useState<string | null>(profile?.mentor_code || null);
+  const [generatingMentorCode, setGeneratingMentorCode] = useState(false);
+  const [copiedMentorCode, setCopiedMentorCode] = useState(false);
+
+  const loadLinkedStudents = useCallback(async () => {
+    setStudentsLoading(true);
+    const { data } = await supabase
+      .from('students')
+      .select('id, name, grade, student_user_id')
+      .eq('mentor_id', profile.id);
+    setLinkedStudents(data || []);
+    setStudentsLoading(false);
+  }, [supabase, profile?.id]);
+
+  useEffect(() => { loadLinkedStudents(); }, [loadLinkedStudents]);
+
+  const handleGenerateMentorCode = async () => {
+    if (mentorInviteCode) {
+      const confirmed = window.confirm(
+        "This will invalidate your current code. Anyone who hasn't linked yet using it won't be able to. Continue?"
+      );
+      if (!confirmed) return;
+    }
+    setGeneratingMentorCode(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error('Not authenticated'); return; }
+
+      const res = await fetch('/api/invite-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'generate_mentor' }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast.error(json.error || 'Failed to generate code'); return; }
+      setMentorInviteCode(json.code);
+      toast.success('New mentor invite code generated!');
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err?.message || 'Error generating code');
+    } finally {
+      setGeneratingMentorCode(false);
+    }
+  };
+
+  const handleCopyMentorCode = () => {
+    if (!mentorInviteCode) return;
+    navigator.clipboard?.writeText(mentorInviteCode);
+    setCopiedMentorCode(true);
+    setTimeout(() => setCopiedMentorCode(false), 2000);
+    toast.success('Invite code copied!');
+  };
+
+  const handleLinkCounselor = async () => {
+    if (!counselorCode.trim()) return;
+    setSubmittingCounselor(true);
+    try {
+      const { data: codeRow, error } = await supabase
+        .from('counselor_mentor_invites')
+        .select('id, counselor_id, used_by')
+        .eq('invite_code', counselorCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid counselor code.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This code has already been used.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ counselor_id: codeRow.counselor_id })
+        .eq('id', profile.id);
+
+      if (updateError) {
+        toast.error('Failed to link counselor: ' + updateError.message);
+        return;
+      }
+
+      await supabase
+        .from('counselor_mentor_invites')
+        .update({ used_by: profile.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to counselor successfully!');
+      setCounselorCode('');
+      onRefresh();
+    } finally {
+      setSubmittingCounselor(false);
+    }
+  };
+
+  const handleLinkSchool = async () => {
+    if (!schoolCode.trim()) return;
+    setSubmittingSchool(true);
+    try {
+      const { data: codeRow, error } = await supabase
+        .from('school_invite_codes')
+        .select('id, school_id, used_by')
+        .eq('invite_code', schoolCode.trim().toUpperCase())
+        .single();
+
+      if (error || !codeRow) {
+        toast.error('Invalid school code.');
+        return;
+      }
+      if (codeRow.used_by) {
+        toast.error('This code has already been used.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ school_id: codeRow.school_id })
+        .eq('id', profile.id);
+
+      if (updateError) {
+        toast.error('Failed to link school: ' + updateError.message);
+        return;
+      }
+
+      await supabase
+        .from('school_invite_codes')
+        .update({ used_by: profile.id, used_at: new Date().toISOString() })
+        .eq('id', codeRow.id);
+
+      toast.success('Linked to school successfully!');
+      setSchoolCode('');
+      onRefresh();
+    } finally {
+      setSubmittingSchool(false);
+    }
+  };
+
+  const handleUnlinkStudent = async (studentId: string, studentName: string) => {
+    setUnlinking(studentId);
+    try {
+      const { error } = await supabase
+        .from('students')
+        .update({ mentor_id: null })
+        .eq('id', studentId);
+
+      if (error) {
+        toast.error('Failed to unlink student: ' + error.message);
+      } else {
+        toast.success(`${studentName} removed from your roster.`);
+        setLinkedStudents((prev) => prev.filter((s) => s.id !== studentId));
+      }
+    } finally {
+      setUnlinking(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Mentor Invite Code */}
+      <div className="card-elevated p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-700 text-foreground">Your Mentor Invite Code</h2>
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Icon name="KeyIcon" size={17} className="text-primary" />
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Share this 8-character code with students so they can link to you during sign-up.
+        </p>
+        {mentorInviteCode ? (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
+            <span className="font-mono text-xl font-800 text-primary tracking-widest flex-1">
+              {mentorInviteCode}
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyMentorCode}
+              className="btn-ghost text-xs gap-1.5"
+            >
+              <Icon name={copiedMentorCode ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} />
+              {copiedMentorCode ? 'Copied!' : 'Copy'}
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateMentorCode}
+              disabled={generatingMentorCode}
+              className="btn-ghost text-xs gap-1.5"
+              title="Generate a new code (invalidates the old one)"
+            >
+              <Icon name="ArrowPathIcon" size={14} className={generatingMentorCode ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleGenerateMentorCode}
+            disabled={generatingMentorCode}
+            className="btn-primary"
+          >
+            {generatingMentorCode ? (
+              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Generating…</>
+            ) : (
+              <><Icon name="KeyIcon" size={16} /> Generate Invite Code</>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Link Codes */}
+      <div className="card-elevated p-6">
+        <h2 className="text-lg font-700 text-foreground mb-1">Link to Organization</h2>
+        <p className="text-sm text-muted-foreground mb-5">Enter codes to connect with a counselor or school.</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="ShieldCheckIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Counselor</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.counselor_id ? '✅ Linked' : '— Not linked yet'}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-secondary border border-border">
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="BuildingLibraryIcon" size={16} className="text-primary" />
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked School</span>
+            </div>
+            <p className="text-sm font-600 text-foreground">
+              {profile?.school_id ? '✅ Linked' : '— Not linked yet'}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter Counselor Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. CNS-ABCD12"
+                value={counselorCode}
+                onChange={(e) => setCounselorCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkCounselor()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkCounselor}
+                disabled={submittingCounselor || !counselorCode.trim()}
+              >
+                {submittingCounselor ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Enter School Code</label>
+            <div className="flex gap-2">
+              <input
+                className="input-mystic flex-1"
+                placeholder="e.g. SCH-XYZ789"
+                value={schoolCode}
+                onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleLinkSchool()}
+              />
+              <button
+                className="btn-primary px-5"
+                onClick={handleLinkSchool}
+                disabled={submittingSchool || !schoolCode.trim()}
+              >
+                {submittingSchool ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="LinkIcon" size={16} />
+                )}
+                Link
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Student Roster */}
+      <div className="card-elevated p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-700 text-foreground">Linked Student Roster</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {linkedStudents.length} student{linkedStudents.length !== 1 ? 's' : ''} currently linked to you
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Icon name="UserGroupIcon" size={18} className="text-primary" />
+          </div>
+        </div>
+
+        {studentsLoading ? (
+          <div className="flex justify-center py-8">
+            <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : linkedStudents.length === 0 ? (
+          <div className="text-center py-10">
+            <Icon name="UserGroupIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No students linked yet. Students can link to you using your mentor code.</p>
+            {profile?.mentor_code && (
+              <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20">
+                <Icon name="KeyIcon" size={14} className="text-primary" />
+                <span className="text-sm font-700 text-primary font-mono tracking-widest">{profile.mentor_code}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {linkedStudents.map((student) => (
+              <div
+                key={student.id}
+                className="flex items-center justify-between p-3.5 rounded-xl bg-secondary border border-border"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center">
+                    <span className="text-xs font-700 text-primary">
+                      {student.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-600 text-foreground">{student.name}</p>
+                    <p className="text-xs text-muted-foreground">Grade {student.grade}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleUnlinkStudent(student.id, student.name)}
+                  disabled={unlinking === student.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 text-negative bg-negative/10 hover:bg-negative/20 transition-colors border border-negative/20"
+                >
+                  {unlinking === student.id ? (
+                    <span className="w-3 h-3 border border-negative border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Icon name="UserMinusIcon" size={13} />
+                  )}
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function NetworkLinksContent() {
+  const { profile, refreshProfile } = useAuth();
+
+  if (!profile) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <span className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-fade-in">
+      <div className="mb-6">
+        <h1 className="text-2xl font-700 text-foreground">Network &amp; Links</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage your connections and organizational links.
+        </p>
+      </div>
+
+      {profile.role === 'student' && (
+        <StudentSection profile={profile} onRefresh={refreshProfile} />
+      )}
+
+      {profile.role === 'mentor' && (
+        <MentorSection profile={profile} onRefresh={refreshProfile} />
+      )}
+
+      {(profile.role === 'counselor' || profile.role === 'school') && (
+        <CounselorSchoolSection profile={profile} />
+      )}
+    </div>
+  );
+}
