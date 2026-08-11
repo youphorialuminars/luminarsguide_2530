@@ -10,9 +10,43 @@ interface SearchResult {
   id: string;
   label: string;
   sublabel?: string;
-  type: 'student' | 'mentor' | 'session';
+  type: 'student' | 'mentor' | 'section';
   href: string;
 }
+
+interface SectionDef {
+  label: string;
+  href: string;
+}
+
+const SECTIONS_BY_ROLE: Record<string, SectionDef[]> = {
+  mentor: [
+    { label: 'Student Roster', href: '/student-dashboard' },
+    { label: 'New Session', href: '/new-session' },
+    { label: 'Analysis', href: '/student-analysis-history' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+  student: [
+    { label: 'My Dashboard', href: '/student-parent-dashboard' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+  school: [
+    { label: 'Institutional Overview', href: '/school-dashboard?tab=overview' },
+    { label: 'Student Directory', href: '/school-dashboard?tab=students' },
+    { label: 'Mentor Directory', href: '/school-dashboard?tab=mentors' },
+    { label: 'Invite Codes', href: '/school-dashboard?tab=invites' },
+    { label: 'School Calendar', href: '/school-dashboard?tab=calendar' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+  counselor: [
+    { label: 'Counselor Dashboard', href: '/counselor-dashboard' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+};
 
 export default function GlobalSearch() {
   const router = useRouter();
@@ -38,13 +72,12 @@ export default function GlobalSearch() {
 
       try {
         if (role === 'mentor') {
-          // Mentors: search their own students
           const { data: students } = await supabase
             .from('students')
             .select('id, name, grade')
             .eq('mentor_id', uid)
             .ilike('name', `%${q}%`)
-            .limit(8);
+            .limit(6);
 
           (students || []).forEach((s) =>
             hits.push({
@@ -52,32 +85,10 @@ export default function GlobalSearch() {
               label: s.name,
               sublabel: s.grade ? `Grade ${s.grade}` : 'Student',
               type: 'student',
-              href: `/student-analysis-history?studentId=${s.id}`,
+              href: `/student-dashboard?q=${encodeURIComponent(s.name)}`,
             })
           );
-        } else if (role === 'parent') {
-          // Parents: search only their linked child
-          const linkedId = profile.linked_student_id;
-          if (linkedId) {
-            const { data: student } = await supabase
-              .from('students')
-              .select('id, name, grade')
-              .eq('id', linkedId)
-              .ilike('name', `%${q}%`)
-              .maybeSingle();
-
-            if (student) {
-              hits.push({
-                id: student.id,
-                label: student.name,
-                sublabel: student.grade ? `Grade ${student.grade}` : 'Your Child',
-                type: 'student',
-                href: `/parents-hub`,
-              });
-            }
-          }
         } else if (role === 'school') {
-          // School: search mentors and students linked to this school
           const [{ data: schoolMentors }, { data: schoolStudents }] = await Promise.all([
             supabase
               .from('user_profiles')
@@ -87,10 +98,11 @@ export default function GlobalSearch() {
               .ilike('full_name', `%${q}%`)
               .limit(5),
             supabase
-              .from('students')
-              .select('id, name, grade')
+              .from('user_profiles')
+              .select('id, full_name')
               .eq('school_id', uid)
-              .ilike('name', `%${q}%`)
+              .eq('role', 'student')
+              .ilike('full_name', `%${q}%`)
               .limit(5),
           ]);
 
@@ -100,40 +112,55 @@ export default function GlobalSearch() {
               label: m.full_name,
               sublabel: m.email,
               type: 'mentor',
-              href: `/school-mentor-view?mentorId=${m.id}`,
+              href: `/school-dashboard?tab=mentors&q=${encodeURIComponent(m.full_name)}`,
             })
           );
           (schoolStudents || []).forEach((s) =>
             hits.push({
               id: s.id,
-              label: s.name,
-              sublabel: s.grade ? `Grade ${s.grade}` : 'Student',
+              label: s.full_name,
+              sublabel: 'Student',
               type: 'student',
-              href: `/school-student-view?studentId=${s.id}`,
+              href: `/school-dashboard?tab=students&q=${encodeURIComponent(s.full_name)}`,
             })
           );
         } else if (role === 'counselor') {
-          // Counselor: search students linked to their counselor_id
           const { data: students } = await supabase
-            .from('students')
-            .select('id, name, grade')
+            .from('user_profiles')
+            .select('id, full_name')
             .eq('counselor_id', uid)
-            .ilike('name', `%${q}%`)
+            .eq('role', 'student')
+            .ilike('full_name', `%${q}%`)
             .limit(8);
 
           (students || []).forEach((s) =>
             hits.push({
               id: s.id,
-              label: s.name,
-              sublabel: s.grade ? `Grade ${s.grade}` : 'Student',
+              label: s.full_name,
+              sublabel: 'Student',
               type: 'student',
-              href: `/counselor-student-view?studentId=${s.id}`,
+              href: `/counselor-dashboard?q=${encodeURIComponent(s.full_name)}`,
             })
           );
         }
+        // Student role: no people search, sections only (added below for all roles)
       } catch (err) {
         console.error('[GlobalSearch]', err);
       }
+
+      // Section matches (available to every role)
+      const roleSections = SECTIONS_BY_ROLE[role] || [];
+      roleSections
+        .filter((sec) => sec.label.toLowerCase().includes(q.toLowerCase()))
+        .forEach((sec) =>
+          hits.push({
+            id: `section-${sec.href}`,
+            label: sec.label,
+            sublabel: 'Section',
+            type: 'section',
+            href: sec.href,
+          })
+        );
 
       setResults(hits);
       setLoading(false);
@@ -154,7 +181,6 @@ export default function GlobalSearch() {
     return () => clearTimeout(timer);
   }, [query, search]);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -174,8 +200,11 @@ export default function GlobalSearch() {
   const typeIcon: Record<SearchResult['type'], string> = {
     student: 'AcademicCapIcon',
     mentor: 'UserIcon',
-    session: 'ClipboardDocumentListIcon',
+    section: 'Squares2X2Icon',
   };
+
+  // Students don't search other people — placeholder reflects that
+  const placeholder = profile?.role === 'student' ? 'Search sections…' : 'Search students, sections…';
 
   return (
     <div ref={containerRef} className="relative w-full max-w-xs">
@@ -186,7 +215,7 @@ export default function GlobalSearch() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search students…"
+          placeholder={placeholder}
           className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
           onFocus={() => query.trim().length >= 2 && setOpen(true)}
         />
@@ -205,7 +234,7 @@ export default function GlobalSearch() {
       </div>
 
       {open && results.length > 0 && (
-        <div className="absolute top-full mt-1.5 left-0 right-0 z-50 bg-card border border-border rounded-xl shadow-lg overflow-hidden animate-fade-in">
+        <div className="absolute top-full mt-1.5 left-0 right-0 z-50 bg-card border border-border rounded-xl shadow-lg overflow-hidden animate-fade-in max-h-80 overflow-y-auto">
           {results.map((r) => (
             <button
               key={r.id}
