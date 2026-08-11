@@ -143,15 +143,24 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         return;
       }
 
-      // Update student's profile with mentor_id
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ mentor_id: mentorProfile.id })
-        .eq('id', profile.id);
+      // Add this mentor to the student's list of linked mentors (does not overwrite existing links)
+      const { error: linkError } = await supabase
+        .from('student_mentor_links')
+        .insert({ student_user_id: profile.id, mentor_id: mentorProfile.id });
 
-      if (updateError) {
-        toast.error('Failed to link mentor: ' + updateError.message);
+      if (linkError && linkError.code !== '23505') {
+        // 23505 = "already linked to this mentor" — safe to ignore, not a real failure
+        toast.error('Failed to link mentor: ' + linkError.message);
         return;
+      }
+
+      // Keep the original single mentor_id field set too, for backward compatibility
+      // (only fills it in if the student has no primary mentor yet)
+      if (!profile.mentor_id) {
+        await supabase
+          .from('user_profiles')
+          .update({ mentor_id: mentorProfile.id })
+          .eq('id', profile.id);
       }
 
       // Ensure a matching row exists in the `students` table for this account
