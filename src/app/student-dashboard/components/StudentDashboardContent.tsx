@@ -1589,8 +1589,13 @@ export default function StudentDashboardContent() {
                       </div>
                     )}
                   </div>
-                  );
+                 );
                 })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── PARENT QUERIES TAB ────────────────────────────────────────────── */}
       {activeTab === 'parent-queries' && (
