@@ -118,7 +118,7 @@ export default function SchoolDashboardContent() {
         .from('user_profiles')
         .select('id, full_name, mentor_id')
         .eq('school_id', uid)
-        .eq('role', 'student');
+        .in('role', ['student', 'student_parent']);
 
       if (studentErr) {
         console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
