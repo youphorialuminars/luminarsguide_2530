@@ -432,11 +432,15 @@ export default function StudentDashboardContent() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setStudentsLoading(false); return; }
 
-    const [studentsResult, profileResult] = await Promise.all([
+    const [primaryResult, linkedResult, profileResult] = await Promise.all([
       supabase
         .from('user_profiles')
         .select('id, full_name, email, mentor_id, role, created_at, student_id')
         .eq('role', 'student')
+        .eq('mentor_id', user.id),
+      supabase
+        .from('student_mentor_links')
+        .select('student_user_id')
         .eq('mentor_id', user.id),
       supabase
         .from('user_profiles')
@@ -445,7 +449,25 @@ export default function StudentDashboardContent() {
         .single(),
     ]);
 
-    const rawProfiles: DbUserProfileStudent[] = studentsResult.data || [];
+    // Combine students found via the old single mentor_id field and the new multi-mentor list,
+    // removing duplicates so a student showing up in both isn't listed twice
+    const linkedStudentIds = (linkedResult.data || []).map((r) => r.student_user_id);
+    let extraProfiles: DbUserProfileStudent[] = [];
+    if (linkedStudentIds.length > 0) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, email, mentor_id, role, created_at, student_id')
+        .eq('role', 'student')
+        .in('id', linkedStudentIds);
+      extraProfiles = data || [];
+    }
+
+    const seen = new Set<string>();
+    const rawProfiles: DbUserProfileStudent[] = [...(primaryResult.data || []), ...extraProfiles].filter((p) => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
 
     // Map user_profiles students to UiStudent shape
     const mappedStudents: UiStudent[] = rawProfiles.map((p, i) => {
