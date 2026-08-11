@@ -778,27 +778,49 @@ export default function StudentParentDashboardContent() {
                     {/* File Submission */}
                     {task.requires_submission && (
                     <div className="mt-3 pt-3 border-t border-border/50">
-                      <div className="flex items-center gap-2">
-                        <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
-                          {uploadingTaskId === task.id ? (
-                            <><Icon name="ArrowPathIcon" size={12} className="animate-spin" /> Uploading...</>
-                          ) : (
-                            <><Icon name="PaperClipIcon" size={12} /> Attach File</>
-                          )}
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov"
+                      {pendingFiles[task.id] ? (
+                        <div className="flex items-center gap-2 flex-wrap p-2 rounded-lg bg-primary/5 border border-primary/20">
+                          <Icon name="DocumentIcon" size={14} className="text-primary flex-shrink-0" />
+                          <span className="text-xs text-foreground truncate flex-1">{pendingFiles[task.id].name}</span>
+                          <button
+                            className="btn-primary text-xs py-1 px-3"
                             disabled={uploadingTaskId === task.id}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileUpload(task, file);
-                              e.target.value = '';
+                            onClick={() => {
+                              const file = pendingFiles[task.id];
+                              handleFileUpload(task, file);
+                              handleCancelUpload(task.id);
                             }}
-                          />
-                        </label>
-                        <span className="text-xs text-muted-foreground">PDF, image, or video · max 20MB</span>
-                      </div>
+                          >
+                            {uploadingTaskId === task.id ? (
+                              <><Icon name="ArrowPathIcon" size={12} className="animate-spin" /> Submitting...</>
+                            ) : 'Confirm Submit'}
+                          </button>
+                          <button
+                            className="btn-ghost text-xs py-1 px-3"
+                            disabled={uploadingTaskId === task.id}
+                            onClick={() => handleCancelUpload(task.id)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
+                            <Icon name="PaperClipIcon" size={12} /> Attach File
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileSelect(task, file);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          <span className="text-xs text-muted-foreground">PDF, image, or video · max 20MB</span>
+                        </div>
+                      )}
                       {taskSubmissions.filter((s) => s.task_id === task.id).map((s) => (
                         <div key={s.id} className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-secondary/40 text-xs">
                           <Icon name="DocumentIcon" size={13} className="text-primary flex-shrink-0" />
