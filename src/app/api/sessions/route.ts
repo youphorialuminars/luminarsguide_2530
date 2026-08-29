@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function getServerSupabase() {
+function getServerSupabase(token?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key);
+  return createClient(url, key, token
+    ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+    : undefined);
 }
 
-async function requireUser(req: NextRequest, supabase: ReturnType<typeof getServerSupabase>) {
+async function requireUser(req: NextRequest) {
   const authHeader = req.headers.get('authorization') || '';
   const token = authHeader.replace('Bearer ', '').trim();
   if (!token) return null;
+  const supabase = getServerSupabase(token);
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return null;
-  return user;
+  return { user, supabase };
 }
 
 // GET /api/sessions — fetch sessions for a student or mentor
@@ -22,11 +25,11 @@ async function requireUser(req: NextRequest, supabase: ReturnType<typeof getServ
 // the caller before returning anything.
 export async function GET(req: NextRequest) {
   try {
-    const supabase = getServerSupabase();
-    const user = await requireUser(req, supabase);
-    if (!user) {
+    const auth = await requireUser(req);
+    if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const { user, supabase } = auth;
 
     const { searchParams } = new URL(req.url);
     const studentId = searchParams.get('student_id');
@@ -82,11 +85,11 @@ export async function GET(req: NextRequest) {
 // SECURITY: mentor_id must match the logged-in caller.
 export async function POST(req: NextRequest) {
   try {
-    const supabase = getServerSupabase();
-    const user = await requireUser(req, supabase);
-    if (!user) {
+    const auth = await requireUser(req);
+    if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const { user, supabase } = auth;
 
     const body = await req.json();
     const {
