@@ -173,10 +173,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
 
       // Keep the original single mentor_id field set too, for backward compatibility
       if (!profile.mentor_id) {
-        await supabase
-          .from('user_profiles')
-          .update({ mentor_id: mentorProfile.id })
-          .eq('id', profile.id);
+        await supabase.rpc('student_link_backfill_ids', { p_mentor_id: mentorProfile.id });
       }
 
       // Every mentor relationship needs its own proper record in the `students` table —
@@ -206,10 +203,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
 
           // Keep student_id pointing at *a* valid students row for backward compatibility
           if (newRow && !profile.student_id) {
-            await supabase
-              .from('user_profiles')
-              .update({ student_id: newRow.id })
-              .eq('id', profile.id);
+            await supabase.rpc('student_link_backfill_ids', { p_student_id: newRow.id });
           }
         }
       }
@@ -252,10 +246,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         }
 
         if (studentRecordId) {
-          await supabase
-            .from('user_profiles')
-            .update({ student_id: studentRecordId })
-            .eq('id', profile.id);
+          await supabase.rpc('student_link_backfill_ids', { p_student_id: studentRecordId });
         }
       }
 
@@ -277,40 +268,18 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         return;
       }
 
-      const { data: codeRow, error } = await supabase
-        .from('school_invite_codes')
-        .select('id, school_id, used_by')
-        .eq('invite_code', schoolCode.trim().toUpperCase())
-        .single();
+      const { data, error } = await supabase.rpc('use_school_invite_code', {
+        p_invite_code: schoolCode.trim().toUpperCase(),
+      });
 
-      if (error || !codeRow) {
-        toast.error('Invalid school code. Please check and try again.');
+      if (error) {
+        toast.error('Failed to link school: ' + error.message);
         return;
       }
-      if (codeRow.used_by) {
-        toast.error('This school code has already been used.');
+      if (!data?.success) {
+        toast.error(data?.error || 'Invalid or already-used school code.');
         return;
       }
-
-      const { data: updatedRows, error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ school_id: codeRow.school_id })
-        .eq('id', user.id)
-        .select();
-
-      if (updateError) {
-        toast.error('Failed to link school: ' + updateError.message);
-        return;
-      }
-      if (!updatedRows || updatedRows.length === 0) {
-        toast.error('Link failed: no matching profile found. Please contact support.');
-        return;
-      }
-
-      await supabase
-        .from('school_invite_codes')
-        .update({ used_by: user.id, used_at: new Date().toISOString() })
-        .eq('id', codeRow.id);
 
       toast.success('Linked to school successfully!');
       setSchoolCode('');
@@ -324,35 +293,18 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
     if (!counselorCode.trim()) return;
     setSubmittingCounselor(true);
     try {
-      const { data: codeRow, error } = await supabase
-        .from('counselor_mentor_invites')
-        .select('id, counselor_id, used_by')
-        .eq('invite_code', counselorCode.trim().toUpperCase())
-        .single();
+      const { data, error } = await supabase.rpc('mentor_use_counselor_invite', {
+        p_invite_code: counselorCode.trim().toUpperCase(),
+      });
 
-      if (error || !codeRow) {
-        toast.error('Invalid counselor code. Please check and try again.');
+      if (error) {
+        toast.error('Failed to link counselor: ' + error.message);
         return;
       }
-      if (codeRow.used_by) {
-        toast.error('This counselor code has already been used.');
+      if (!data?.success) {
+        toast.error(data?.error || 'Invalid or already-used counselor code.');
         return;
       }
-
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ counselor_id: codeRow.counselor_id })
-        .eq('id', profile.id);
-
-      if (updateError) {
-        toast.error('Failed to link counselor: ' + updateError.message);
-        return;
-      }
-
-      await supabase
-        .from('counselor_mentor_invites')
-        .update({ used_by: profile.id, used_at: new Date().toISOString() })
-        .eq('id', codeRow.id);
 
       toast.success('Linked to counselor successfully!');
       setCounselorCode('');
@@ -697,29 +649,24 @@ function CounselorSchoolSection({ profile }: { profile: any }) {
   const generateCode = async () => {
     setGenerating(true);
     try {
-      // Check if a code already exists for this user
-      const { data: existing } = await supabase
-        .from(table)
-        .select('invite_code')
-        .eq(idField, profile.id)
-        .limit(1)
-        .maybeSingle();
-
-      if (existing?.invite_code) {
-        toast.success(`Your existing code: ${existing.invite_code}`, { duration: 5000 });
-        loadCodes();
-      } else {
-        // Only generate a new code if none exists
-        const prefix = profile?.role === 'school' ? 'SCH' : 'CNS';
-        const code = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-        const { error } = await supabase.from(table).insert({
-          [idField]: profile.id,
-          invite_code: code,
+      if (profile?.role === 'school') {
+        const { data: newCode, error } = await supabase.rpc('generate_school_invite_code', {
+          p_school_id: profile.id,
         });
         if (error) {
           toast.error('Failed to generate code: ' + error.message);
         } else {
-          toast.success('Invite code generated!');
+          toast.success(`New invite code: ${newCode}`, { duration: 5000 });
+          loadCodes();
+        }
+      } else {
+        const { data, error } = await supabase.rpc('counselor_generate_mentor_invite');
+        if (error) {
+          toast.error('Failed to generate code: ' + error.message);
+        } else if (!data?.success) {
+          toast.error(data?.error || 'Failed to generate code.');
+        } else {
+          toast.success(`New invite code: ${data.invite_code}`, { duration: 5000 });
           loadCodes();
         }
       }
@@ -942,35 +889,18 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
     if (!counselorCode.trim()) return;
     setSubmittingCounselor(true);
     try {
-      const { data: codeRow, error } = await supabase
-        .from('counselor_mentor_invites')
-        .select('id, counselor_id, used_by')
-        .eq('invite_code', counselorCode.trim().toUpperCase())
-        .single();
+      const { data, error } = await supabase.rpc('mentor_use_counselor_invite', {
+        p_invite_code: counselorCode.trim().toUpperCase(),
+      });
 
-      if (error || !codeRow) {
-        toast.error('Invalid counselor code.');
+      if (error) {
+        toast.error('Failed to link counselor: ' + error.message);
         return;
       }
-      if (codeRow.used_by) {
-        toast.error('This code has already been used.');
+      if (!data?.success) {
+        toast.error(data?.error || 'Invalid or already-used counselor code.');
         return;
       }
-
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ counselor_id: codeRow.counselor_id })
-        .eq('id', profile.id);
-
-      if (updateError) {
-        toast.error('Failed to link counselor: ' + updateError.message);
-        return;
-      }
-
-      await supabase
-        .from('counselor_mentor_invites')
-        .update({ used_by: profile.id, used_at: new Date().toISOString() })
-        .eq('id', codeRow.id);
 
       toast.success('Linked to counselor successfully!');
       setCounselorCode('');
@@ -984,35 +914,18 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
     if (!schoolCode.trim()) return;
     setSubmittingSchool(true);
     try {
-      const { data: codeRow, error } = await supabase
-        .from('school_invite_codes')
-        .select('id, school_id, used_by')
-        .eq('invite_code', schoolCode.trim().toUpperCase())
-        .single();
+      const { data, error } = await supabase.rpc('use_school_invite_code', {
+        p_invite_code: schoolCode.trim().toUpperCase(),
+      });
 
-      if (error || !codeRow) {
-        toast.error('Invalid school code.');
+      if (error) {
+        toast.error('Failed to link school: ' + error.message);
         return;
       }
-      if (codeRow.used_by) {
-        toast.error('This code has already been used.');
+      if (!data?.success) {
+        toast.error(data?.error || 'Invalid or already-used school code.');
         return;
       }
-
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ school_id: codeRow.school_id })
-        .eq('id', profile.id);
-
-      if (updateError) {
-        toast.error('Failed to link school: ' + updateError.message);
-        return;
-      }
-
-      await supabase
-        .from('school_invite_codes')
-        .update({ used_by: profile.id, used_at: new Date().toISOString() })
-        .eq('id', codeRow.id);
 
       toast.success('Linked to school successfully!');
       setSchoolCode('');
