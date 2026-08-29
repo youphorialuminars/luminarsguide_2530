@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function getServerSupabase() {
+function getServerSupabase(token?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key);
+  return createClient(url, key, token
+    ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+    : undefined);
 }
 
 // POST /api/register — register a new user and create their profile
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = getServerSupabase();
+    const supabase = getServerSupabase(token);
     const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
     if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
