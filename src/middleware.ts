@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 // Route → allowed roles mapping
 const ROLE_ROUTES: Record<string, string[]> = {
@@ -41,6 +42,29 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Confirm a real, server-verified login session exists — not just the
+  // app's own cookie stating a role, which anyone can edit in their browser.
+  let response = NextResponse.next();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookiesToSet) => {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.redirect(new URL('/sign-up-login', request.url));
+  }
+
   // Read role from cookie set at login
   const roleCookie = request.cookies.get('luminar_role')?.value;
 
@@ -64,7 +88,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {
