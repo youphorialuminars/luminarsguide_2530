@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,6 +32,7 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
   const [generatingParentCode, setGeneratingParentCode] = useState(false);
   const [copiedParentCode, setCopiedParentCode] = useState(false);
   const [mentorName, setMentorName] = useState<string | null>(null);
+  const [allMentorNames, setAllMentorNames] = useState<string[]>([]);
   const [schoolName, setSchoolName] = useState<string | null>(null);
   const [counselorName, setCounselorName] = useState<string | null>(null);
 
@@ -57,6 +59,21 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
           .eq('id', profile.mentor_id)
           .single();
         setMentorName(data?.full_name || null);
+      }
+
+      // Load ALL linked mentors, not just the primary one
+      const { data: linkRows } = await supabase
+        .from('student_mentor_links')
+        .select('mentor_id')
+        .eq('student_user_id', profile.id);
+
+      if (linkRows && linkRows.length > 0) {
+        const mentorIds = linkRows.map((r) => r.mentor_id);
+        const { data: mentorProfiles } = await supabase
+          .from('user_profiles')
+          .select('full_name')
+          .in('id', mentorIds);
+        setAllMentorNames((mentorProfiles || []).map((m) => m.full_name).filter(Boolean));
       }
       if (profile?.school_id) {
         const { data } = await supabase
@@ -148,19 +165,53 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
         .from('student_mentor_links')
         .insert({ student_user_id: profile.id, mentor_id: mentorProfile.id });
 
-      if (linkError && linkError.code !== '23505') {
-        // 23505 = "already linked to this mentor" — safe to ignore, not a real failure
+      const alreadyLinked = linkError && linkError.code === '23505';
+      if (linkError && !alreadyLinked) {
         toast.error('Failed to link mentor: ' + linkError.message);
         return;
       }
 
       // Keep the original single mentor_id field set too, for backward compatibility
-      // (only fills it in if the student has no primary mentor yet)
       if (!profile.mentor_id) {
         await supabase
           .from('user_profiles')
           .update({ mentor_id: mentorProfile.id })
           .eq('id', profile.id);
+      }
+
+      // Every mentor relationship needs its own proper record in the `students` table —
+      // this is what tasks, attendance, and sessions actually depend on. Without this,
+      // a second/third mentor can "see" the student in their roster but nothing else works.
+      if (!alreadyLinked) {
+        const { data: existingForThisMentor } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_user_id', profile.id)
+          .eq('mentor_id', mentorProfile.id)
+          .maybeSingle();
+
+        if (!existingForThisMentor) {
+          const generatedStudentCode = `STU-${Math.floor(100000 + Math.random() * 900000)}`;
+          const { data: newRow } = await supabase
+            .from('students')
+            .insert({
+              mentor_id: mentorProfile.id,
+              name: profile.full_name || profile.email || 'Student',
+              student_email: profile.email || null,
+              student_user_id: profile.id,
+              student_code: generatedStudentCode,
+            })
+            .select('id')
+            .single();
+
+          // Keep student_id pointing at *a* valid students row for backward compatibility
+          if (newRow && !profile.student_id) {
+            await supabase
+              .from('user_profiles')
+              .update({ student_id: newRow.id })
+              .eq('id', profile.id);
+          }
+        }
       }
 
       // Ensure a matching row exists in the `students` table for this account
@@ -321,11 +372,21 @@ function StudentSection({ profile, onRefresh }: { profile: any; onRefresh: () =>
           <div className="p-4 rounded-xl bg-secondary border border-border">
             <div className="flex items-center gap-2 mb-1">
               <Icon name="AcademicCapIcon" size={16} className="text-primary" />
-              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Linked Mentor</span>
+              <span className="text-xs font-600 text-muted-foreground uppercase tracking-wide">
+                Linked Mentor{allMentorNames.length > 1 ? 's' : ''}
+              </span>
             </div>
-            <p className="text-sm font-600 text-foreground">
-              {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
-            </p>
+            {allMentorNames.length > 0 ? (
+              <div className="flex flex-col gap-0.5">
+                {allMentorNames.map((name, i) => (
+                  <p key={i} className="text-sm font-600 text-foreground">{name}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm font-600 text-foreground">
+                {profile?.mentor_id ? (mentorName || '✅ Linked') : '— Not linked yet'}
+              </p>
+            )}
           </div>
           <div className="p-4 rounded-xl bg-secondary border border-border">
             <div className="flex items-center gap-2 mb-1">
@@ -486,6 +547,136 @@ function CounselorSchoolSection({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  // Team sheet state — one section per mentor, plus Parents/Counselors sections for a school
+  const [sheetGroups, setSheetGroups] = useState<SheetGroup[]>([]);
+  const [sheetLoading, setSheetLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSheet = async () => {
+      setSheetLoading(true);
+      try {
+        let mentorProfiles: any[] = [];
+        let studentTableRows: any[] = [];
+        let otherProfiles: any[] = [];
+
+        if (profile?.role === 'counselor') {
+          const { data: mentors } = await supabase
+            .from('user_profiles')
+            .select('id, full_name, codename, role, email')
+            .eq('role', 'mentor')
+            .eq('counselor_id', profile.id);
+          mentorProfiles = mentors || [];
+
+          const mentorIds = mentorProfiles.map((m: any) => m.id);
+          if (mentorIds.length > 0) {
+            const { data: students } = await supabase
+              .from('students')
+              .select('id, name, mentor_id, student_user_id')
+              .in('mentor_id', mentorIds);
+            studentTableRows = students || [];
+          }
+        } else {
+          const { data: people } = await supabase
+            .from('user_profiles')
+            .select('id, full_name, codename, role, email, mentor_id, counselor_id, linked_student_id')
+            .eq('school_id', profile.id);
+          otherProfiles = people || [];
+          mentorProfiles = otherProfiles.filter((p: any) => p.role === 'mentor');
+
+          const { data: students } = await supabase
+            .from('students')
+            .select('id, name, mentor_id, student_user_id')
+            .eq('school_id', profile.id);
+          studentTableRows = students || [];
+        }
+
+        const studentUserIds = studentTableRows.map((s: any) => s.student_user_id).filter(Boolean);
+        const studentTableIds = studentTableRows.map((s: any) => s.id);
+
+        const [{ data: studentProfiles }, extras] = await Promise.all([
+          studentUserIds.length > 0
+            ? supabase.from('user_profiles').select('id, codename, email').in('id', studentUserIds)
+            : Promise.resolve({ data: [] }),
+          fetchStudentExtras(supabase, studentTableIds),
+        ]);
+        const studentProfileByUserId: Record<string, any> = {};
+        (studentProfiles || []).forEach((p: any) => { studentProfileByUserId[p.id] = p; });
+
+        const studentRowFor = (s: any): SheetRow => {
+          const linkedProfile = s.student_user_id ? studentProfileByUserId[s.student_user_id] : null;
+          const att = extras.attendanceById[s.id];
+          return {
+            id: s.id,
+            name: s.name,
+            codename: linkedProfile?.codename || '—',
+            role: 'student',
+            email: linkedProfile?.email || '—',
+            school: '—',
+            parentName: extras.parentNamesById[s.id] || '—',
+            attendanceRate: att?.rate || '—',
+            lastStatus: att?.lastStatus || '—',
+            linkedTo: '—',
+          };
+        };
+
+        // One section per mentor — their own students grouped underneath them.
+        const mentorGroups: SheetGroup[] = mentorProfiles.map((m: any) => {
+          const theirStudents = studentTableRows.filter((s: any) => s.mentor_id === m.id).map(studentRowFor);
+          return {
+            key: m.id,
+            label: m.full_name || 'Unnamed Mentor',
+            sublabel: `Codename: ${m.codename || '—'} · ${m.email || '—'}`,
+            rows: theirStudents,
+          };
+        });
+
+        const extraGroups: SheetGroup[] = [];
+        if (profile?.role === 'school') {
+          const parentRows: SheetRow[] = otherProfiles
+            .filter((p: any) => p.role === 'parent')
+            .map((p: any) => {
+              const studentRow = studentTableRows.find((s: any) => s.id === p.linked_student_id);
+              return {
+                id: p.id,
+                name: p.full_name || 'Unnamed',
+                codename: p.codename || '—',
+                role: 'parent',
+                email: p.email || '—',
+                school: '—',
+                parentName: '—',
+                attendanceRate: '—',
+                lastStatus: '—',
+                linkedTo: studentRow ? `Parent of: ${studentRow.name}` : 'Not linked to a student',
+              };
+            });
+          const counselorRows: SheetRow[] = otherProfiles
+            .filter((p: any) => p.role === 'counselor')
+            .map((p: any) => ({
+              id: p.id,
+              name: p.full_name || 'Unnamed',
+              codename: p.codename || '—',
+              role: 'counselor',
+              email: p.email || '—',
+              school: '—',
+              parentName: '—',
+              attendanceRate: '—',
+              lastStatus: '—',
+              linkedTo: '—',
+            }));
+          extraGroups.push(
+            { key: 'parents', label: 'Parents', rows: parentRows },
+            { key: 'counselors', label: 'Counselors', rows: counselorRows }
+          );
+        }
+
+        setSheetGroups([...mentorGroups, ...extraGroups]);
+      } catch (err) {
+        console.error('[NetworkLinks] Failed to load team sheet:', err);
+      }
+      setSheetLoading(false);
+    };
+    loadSheet();
+  }, [profile?.id, profile?.role, supabase]);
 
   const table = profile?.role === 'school' ? 'school_invite_codes' : 'counselor_mentor_invites';
   const idField = profile?.role === 'school' ? 'school_id' : 'counselor_id';
@@ -546,6 +737,7 @@ function CounselorSchoolSection({ profile }: { profile: any }) {
   };
 
   return (
+    <div className="space-y-6">
     <div className="card-elevated p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -607,6 +799,21 @@ function CounselorSchoolSection({ profile }: { profile: any }) {
         </div>
       )}
     </div>
+
+      {/* Team Sheet — one section per mentor, plus Parents/Counselors sections for a school */}
+      <SectionedSheet
+        groups={sheetGroups}
+        loading={sheetLoading}
+        title="Team Sheet"
+        subtitle={
+          profile?.role === 'school'
+            ? "One section per mentor at your school (with their students underneath), plus separate sections for Parents and Counselors — codenames and live attendance included."
+            : "One section per mentor under you, with their students listed underneath — codenames and live attendance included."
+        }
+        hideRoleColumnInGroups
+        emptyMessage="No one linked yet."
+      />
+    </div>
   );
 }
 
@@ -624,6 +831,9 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   const [mentorInviteCode, setMentorInviteCode] = useState<string | null>(profile?.mentor_code || null);
   const [generatingMentorCode, setGeneratingMentorCode] = useState(false);
   const [copiedMentorCode, setCopiedMentorCode] = useState(false);
+  // Student sheet state — codename, parent, and live attendance per student
+  const [sheetRows, setSheetRows] = useState<SheetRow[]>([]);
+  const [sheetLoading, setSheetLoading] = useState(true);
 
   const loadLinkedStudents = useCallback(async () => {
     setStudentsLoading(true);
@@ -636,6 +846,59 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   }, [supabase, profile?.id]);
 
   useEffect(() => { loadLinkedStudents(); }, [loadLinkedStudents]);
+
+  const loadStudentSheet = useCallback(async () => {
+    setSheetLoading(true);
+    try {
+      const { data: studentTableRows } = await supabase
+        .from('students')
+        .select('id, name, student_user_id')
+        .eq('mentor_id', profile.id);
+
+      const rows = studentTableRows || [];
+      const studentIds = rows.map((s: any) => s.id);
+      const userIds = rows.map((s: any) => s.student_user_id).filter(Boolean);
+
+      const [{ data: studentProfiles }, extras] = await Promise.all([
+        userIds.length > 0
+          ? supabase.from('user_profiles').select('id, codename, email').in('id', userIds)
+          : Promise.resolve({ data: [] }),
+        fetchStudentExtras(supabase, studentIds),
+      ]);
+
+      const profileByUserId: Record<string, any> = {};
+      (studentProfiles || []).forEach((p: any) => { profileByUserId[p.id] = p; });
+
+      const builtRows: SheetRow[] = rows.map((s: any) => {
+        const linkedProfile = s.student_user_id ? profileByUserId[s.student_user_id] : null;
+        const att = extras.attendanceById[s.id];
+        const academic = extras.academicById[s.id];
+        return {
+          id: s.id,
+          name: s.name,
+          codename: linkedProfile?.codename || '—',
+          role: 'student',
+          email: linkedProfile?.email || '—',
+          school: '—',
+          parentName: extras.parentNamesById[s.id] || '—',
+          attendanceRate: att?.rate || '—',
+          lastStatus: att?.lastStatus || '—',
+          linkedTo: linkedProfile ? 'Account linked' : 'No app account yet',
+          grade: academic?.grade || '—',
+          avgScore: academic?.avgScore || '—',
+          sessionsCount: academic?.sessionsCount || '—',
+          trend: academic?.trend || '—',
+          primaryTopic: academic?.primaryTopic || '—',
+        };
+      });
+      setSheetRows(builtRows);
+    } catch (err) {
+      console.error('[NetworkLinks] Failed to load student sheet:', err);
+    }
+    setSheetLoading(false);
+  }, [supabase, profile?.id]);
+
+  useEffect(() => { loadStudentSheet(); }, [loadStudentSheet]);
 
   const handleGenerateMentorCode = async () => {
     if (mentorInviteCode) {
@@ -762,14 +1025,28 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
   const handleUnlinkStudent = async (studentId: string, studentName: string) => {
     setUnlinking(studentId);
     try {
+      const { data: studentRow } = await supabase
+        .from('students')
+        .select('student_user_id')
+        .eq('id', studentId)
+        .maybeSingle();
+
       const { error } = await supabase
         .from('students')
-        .update({ mentor_id: null })
-        .eq('id', studentId);
+        .delete()
+        .eq('id', studentId)
+        .eq('mentor_id', profile.id);
 
       if (error) {
         toast.error('Failed to unlink student: ' + error.message);
       } else {
+        if (studentRow?.student_user_id) {
+          await supabase
+            .from('student_mentor_links')
+            .delete()
+            .eq('student_user_id', studentRow.student_user_id)
+            .eq('mentor_id', profile.id);
+        }
         toast.success(`${studentName} removed from your roster.`);
         setLinkedStudents((prev) => prev.filter((s) => s.id !== studentId));
       }
@@ -974,12 +1251,514 @@ function MentorSection({ profile, onRefresh }: { profile: any; onRefresh: () => 
           </div>
         )}
       </div>
+
+      {/* Student Sheet — codename, parent, academics, and live attendance, always current */}
+      <RelationshipSheet
+        rows={sheetRows}
+        loading={sheetLoading}
+        title="Student Sheet"
+        subtitle="Every student on your roster with their codename, parent, grade, scores, and attendance — updates automatically as attendance is marked."
+        roleOptions={[]}
+        emptyMessage="No students linked yet."
+        showAcademicColumns
+        hideRoleColumn
+        hideSchoolColumn
+      />
     </div>
+  );
+}
+
+// ─── Shared: relationship sheet row + data helpers ─────────────────────────────
+interface SheetRow {
+  id: string;
+  name: string;
+  codename: string;
+  role: string;
+  email: string;
+  school: string;
+  parentName: string;
+  attendanceRate: string;
+  lastStatus: string;
+  linkedTo: string;
+  grade?: string;
+  avgScore?: string;
+  sessionsCount?: string;
+  trend?: string;
+  primaryTopic?: string;
+}
+
+interface SheetGroup {
+  key: string;
+  label: string;
+  sublabel?: string;
+  rows: SheetRow[];
+}
+
+// Given a list of `students` table ids, returns each student's parent name(s)
+// (via students.parent_ids -> user_profiles.full_name), their live attendance
+// summary, and their academic snapshot (grade, average score, sessions, trend,
+// primary topic) — all keyed by the students.id.
+async function fetchStudentExtras(supabase: any, studentIds: string[]) {
+  const parentNamesById: Record<string, string> = {};
+  const attendanceById: Record<string, { rate: string; lastStatus: string }> = {};
+  const academicById: Record<string, { grade: string; avgScore: string; sessionsCount: string; trend: string; primaryTopic: string }> = {};
+  if (studentIds.length === 0) return { parentNamesById, attendanceById, academicById };
+
+  const [{ data: studentRows }, { data: attRows }] = await Promise.all([
+    supabase.from('students').select('id, parent_ids, grade, avg_score, sessions, trend, primary_topic').in('id', studentIds),
+    supabase
+      .from('attendance')
+      .select('student_id, status, attendance_date')
+      .in('student_id', studentIds)
+      .order('attendance_date', { ascending: false }),
+  ]);
+
+  const allParentIds: string[] = Array.from(
+    new Set((studentRows || []).flatMap((s: any) => s.parent_ids || []))
+  );
+  const parentNameById: Record<string, string> = {};
+  if (allParentIds.length > 0) {
+    const { data: parentProfiles } = await supabase
+      .from('user_profiles')
+      .select('id, full_name')
+      .in('id', allParentIds);
+    (parentProfiles || []).forEach((p: any) => { parentNameById[p.id] = p.full_name || 'Unnamed'; });
+  }
+  (studentRows || []).forEach((s: any) => {
+    const names = (s.parent_ids || []).map((pid: string) => parentNameById[pid]).filter(Boolean);
+    parentNamesById[s.id] = names.length > 0 ? names.join(', ') : '—';
+    academicById[s.id] = {
+      grade: s.grade != null && s.grade !== '' ? String(s.grade) : '—',
+      avgScore: s.avg_score != null ? String(s.avg_score) : '—',
+      sessionsCount: s.sessions != null ? String(s.sessions) : '—',
+      trend: s.trend || '—',
+      primaryTopic: s.primary_topic || '—',
+    };
+  });
+
+  studentIds.forEach((id) => {
+    const records = (attRows || []).filter((a: any) => a.student_id === id);
+    if (records.length === 0) {
+      attendanceById[id] = { rate: '—', lastStatus: '—' };
+    } else {
+      const presentCount = records.filter((r: any) => r.status === 'present').length;
+      const rate = Math.round((presentCount / records.length) * 100);
+      const latest = records[0];
+      attendanceById[id] = {
+        rate: `${rate}% (${presentCount}/${records.length})`,
+        lastStatus: latest.status === 'present' ? 'Present' : latest.status === 'absent' ? 'Absent' : (latest.status || '—'),
+      };
+    }
+  });
+
+  return { parentNamesById, attendanceById, academicById };
+}
+
+const SHEET_ROLE_BADGE: Record<string, string> = {
+  mentor: 'bg-primary/10 text-primary border-primary/20',
+  student: 'bg-sky-50 text-sky-700 border-sky-200',
+  parent: 'bg-violet-50 text-violet-700 border-violet-200',
+  counselor: 'bg-amber-50 text-amber-700 border-amber-200',
+  school: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
+
+// ─── Shared: the actual <table> — reused by both the flat and sectioned sheets ─
+function SheetTable({
+  rows,
+  showAcademicColumns = false,
+  hideRoleColumn = false,
+  hideSchoolColumn = false,
+}: {
+  rows: SheetRow[];
+  showAcademicColumns?: boolean;
+  hideRoleColumn?: boolean;
+  hideSchoolColumn?: boolean;
+}) {
+  const roleBadgeClass = (role: string) => SHEET_ROLE_BADGE[role] || 'bg-secondary text-muted-foreground border-border';
+  const statusBadgeClass = (status: string) => {
+    if (status === 'Present') return 'bg-positive/10 text-positive border-positive/20';
+    if (status === 'Absent') return 'bg-negative/10 text-negative border-negative/20';
+    return 'bg-secondary text-muted-foreground border-border';
+  };
+  const th = "text-left font-600 text-xs text-muted-foreground uppercase tracking-wide px-4 py-3";
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-secondary/60 border-b border-border">
+            <th className={th}>Name</th>
+            <th className={th}>Codename</th>
+            {!hideRoleColumn && <th className={th}>Role</th>}
+            {showAcademicColumns && <th className={th}>Grade</th>}
+            {showAcademicColumns && <th className={th}>Avg Score</th>}
+            {showAcademicColumns && <th className={th}>Sessions</th>}
+            {showAcademicColumns && <th className={th}>Trend</th>}
+            {showAcademicColumns && <th className={th}>Primary Topic</th>}
+            <th className={th}>Parent</th>
+            <th className={th}>Attendance</th>
+            <th className={th}>Email</th>
+            {!hideSchoolColumn && <th className={th}>School</th>}
+            <th className={th}>Linked To</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors">
+              <td className="px-4 py-3 font-600 text-foreground whitespace-nowrap">{r.name}</td>
+              <td className="px-4 py-3 text-foreground/80 whitespace-nowrap">{r.codename}</td>
+              {!hideRoleColumn && (
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <span className={`text-xs font-600 px-2 py-0.5 rounded-full border capitalize ${roleBadgeClass(r.role)}`}>
+                    {r.role}
+                  </span>
+                </td>
+              )}
+              {showAcademicColumns && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.grade || '—'}</td>}
+              {showAcademicColumns && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.avgScore || '—'}</td>}
+              {showAcademicColumns && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.sessionsCount || '—'}</td>}
+              {showAcademicColumns && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.trend || '—'}</td>}
+              {showAcademicColumns && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.primaryTopic || '—'}</td>}
+              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.parentName}</td>
+              <td className="px-4 py-3 whitespace-nowrap">
+                {r.lastStatus !== '—' ? (
+                  <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${statusBadgeClass(r.lastStatus)}`}>
+                    {r.lastStatus}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">—</span>
+                )}
+                {r.attendanceRate !== '—' && (
+                  <span className="text-xs text-muted-foreground ml-1.5">{r.attendanceRate}</span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.email}</td>
+              {!hideSchoolColumn && <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.school}</td>}
+              <td className="px-4 py-3 text-foreground/80">{r.linkedTo}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Shared: flat searchable/filterable relationship sheet ─────────────────────
+function RelationshipSheet({
+  rows,
+  loading,
+  title,
+  subtitle,
+  roleOptions,
+  emptyMessage,
+  showAcademicColumns = false,
+  hideRoleColumn = false,
+  hideSchoolColumn = false,
+}: {
+  rows: SheetRow[];
+  loading: boolean;
+  title: string;
+  subtitle: string;
+  roleOptions: { value: string; label: string }[];
+  emptyMessage: string;
+  showAcademicColumns?: boolean;
+  hideRoleColumn?: boolean;
+  hideSchoolColumn?: boolean;
+}) {
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [search, setSearch] = useState('');
+
+  const filteredRows = rows.filter((r) => {
+    if (roleFilter !== 'all' && r.role !== roleFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.codename.toLowerCase().includes(q) ||
+        r.email.toLowerCase().includes(q) ||
+        r.parentName.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  return (
+    <div className="card-elevated p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-lg font-700 text-foreground">{title}</h2>
+        <span className="text-xs text-muted-foreground">{filteredRows.length} of {rows.length}</span>
+      </div>
+      <p className="text-sm text-muted-foreground mb-5">{subtitle}</p>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <input
+          className="input-mystic flex-1"
+          placeholder="Search by name, codename, email, or parent..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {roleOptions.length > 1 && (
+          <select
+            className="input-mystic sm:w-48"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
+            <option value="all">All roles</option>
+            {roleOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <span className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-10">{emptyMessage}</p>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <SheetTable
+            rows={filteredRows}
+            showAcademicColumns={showAcademicColumns}
+            hideRoleColumn={hideRoleColumn}
+            hideSchoolColumn={hideSchoolColumn}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Shared: grouped-into-sections relationship sheet ──────────────────────────
+function SectionedSheet({
+  groups,
+  loading,
+  title,
+  subtitle,
+  emptyMessage,
+  showAcademicColumns = false,
+  hideRoleColumnInGroups = false,
+}: {
+  groups: SheetGroup[];
+  loading: boolean;
+  title: string;
+  subtitle: string;
+  emptyMessage: string;
+  showAcademicColumns?: boolean;
+  hideRoleColumnInGroups?: boolean;
+}) {
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+
+  const matches = (r: SheetRow) =>
+    !q ||
+    r.name.toLowerCase().includes(q) ||
+    r.codename.toLowerCase().includes(q) ||
+    r.email.toLowerCase().includes(q) ||
+    r.parentName.toLowerCase().includes(q);
+
+  const filteredGroups = groups
+    .map((g) => ({ ...g, rows: g.rows.filter(matches) }))
+    .filter((g) => !q || g.rows.length > 0);
+
+  const totalRows = groups.reduce((sum, g) => sum + g.rows.length, 0);
+
+  return (
+    <div className="card-elevated p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-lg font-700 text-foreground">{title}</h2>
+        <span className="text-xs text-muted-foreground">{groups.length} section{groups.length === 1 ? '' : 's'} · {totalRows} total</span>
+      </div>
+      <p className="text-sm text-muted-foreground mb-5">{subtitle}</p>
+
+      <input
+        className="input-mystic w-full mb-5"
+        placeholder="Search by name, codename, email, or parent..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <span className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-10">{emptyMessage}</p>
+      ) : (
+        <div className="flex flex-col gap-5">
+          {filteredGroups.map((g) => (
+            <div key={g.key} className="rounded-xl border border-border overflow-hidden">
+              <div className="bg-secondary/60 px-4 py-3 border-b border-border flex items-center justify-between">
+                <div>
+                  <p className="font-700 text-foreground text-sm">{g.label}</p>
+                  {g.sublabel && <p className="text-xs text-muted-foreground mt-0.5">{g.sublabel}</p>}
+                </div>
+                <span className="text-xs text-muted-foreground">{g.rows.length}</span>
+              </div>
+              {g.rows.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">Nothing here yet.</p>
+              ) : (
+                <SheetTable
+                  rows={g.rows}
+                  showAcademicColumns={showAcademicColumns}
+                  hideRoleColumn={hideRoleColumnInGroups}
+                  hideSchoolColumn
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin Section — master relationship directory, grouped by school ─────────
+function AdminSection({ profile }: { profile: any }) {
+  const supabase = createClient();
+  const [groups, setGroups] = useState<SheetGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const { data: linkRows } = await supabase
+          .from('admin_school_links')
+          .select('school_id')
+          .eq('admin_id', profile.id);
+
+        const schoolIds = (linkRows || []).map((r: any) => r.school_id);
+        if (schoolIds.length === 0) {
+          setGroups([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, full_name, codename, role, email, school_id, mentor_id, counselor_id, linked_student_id')
+          .in('school_id', schoolIds);
+
+        const { data: schoolProfiles } = await supabase
+          .from('user_profiles')
+          .select('id, full_name, codename, role, email, school_id, mentor_id, counselor_id, linked_student_id')
+          .in('id', schoolIds);
+
+        const { data: studentTableRows } = await supabase
+          .from('students')
+          .select('id, name, mentor_id, student_user_id')
+          .in('school_id', schoolIds);
+
+        const allProfiles = [...(profiles || []), ...(schoolProfiles || [])];
+        const profileById: Record<string, any> = {};
+        allProfiles.forEach((p: any) => { profileById[p.id] = p; });
+
+        const studentRowById: Record<string, any> = {};
+        const studentRowByUserId: Record<string, any> = {};
+        (studentTableRows || []).forEach((s: any) => {
+          studentRowById[s.id] = s;
+          if (s.student_user_id) studentRowByUserId[s.student_user_id] = s;
+        });
+
+        const studentTableIds = (studentTableRows || []).map((s: any) => s.id);
+        const { parentNamesById, attendanceById } = await fetchStudentExtras(supabase, studentTableIds);
+
+        const studentCountByMentorId: Record<string, number> = {};
+        const mentorNamesByCounselorId: Record<string, string[]> = {};
+        allProfiles.forEach((p: any) => {
+          if (p.role === 'student' && p.mentor_id) {
+            studentCountByMentorId[p.mentor_id] = (studentCountByMentorId[p.mentor_id] || 0) + 1;
+          }
+          if (p.role === 'mentor' && p.counselor_id) {
+            const list = mentorNamesByCounselorId[p.counselor_id] || [];
+            list.push(p.full_name || 'Unnamed mentor');
+            mentorNamesByCounselorId[p.counselor_id] = list;
+          }
+        });
+
+        const nameOf = (id: string | null) => (id && profileById[id]) ? (profileById[id].full_name || 'Unnamed') : null;
+
+        const describeLinks = (p: any): string => {
+          if (p.role === 'mentor') {
+            const counselorName = nameOf(p.counselor_id);
+            const studentCount = studentCountByMentorId[p.id] || 0;
+            return `${studentCount} student${studentCount === 1 ? '' : 's'}${counselorName ? ` · Counselor: ${counselorName}` : ''}`;
+          }
+          if (p.role === 'student') {
+            const mentorName = nameOf(p.mentor_id);
+            return mentorName ? `Mentor: ${mentorName}` : 'No mentor linked';
+          }
+          if (p.role === 'parent') {
+            const studentRow = p.linked_student_id ? studentRowById[p.linked_student_id] : null;
+            return studentRow ? `Parent of: ${studentRow.name}` : 'Not linked to a student';
+          }
+          if (p.role === 'counselor') {
+            const mentors = mentorNamesByCounselorId[p.id] || [];
+            return mentors.length > 0 ? `Oversees: ${mentors.join(', ')}` : 'No mentors linked yet';
+          }
+          return '—';
+        };
+
+        const rowFor = (p: any): SheetRow => {
+          const studentRow = p.role === 'student' ? studentRowByUserId[p.id] : null;
+          const parentName = p.role === 'student' && studentRow ? (parentNamesById[studentRow.id] || '—') : '—';
+          const att = p.role === 'student' && studentRow ? attendanceById[studentRow.id] : null;
+          return {
+            id: p.id,
+            name: p.full_name || 'Unnamed',
+            codename: p.codename || '—',
+            role: p.role,
+            email: p.email || '—',
+            school: '—',
+            parentName,
+            attendanceRate: att?.rate || '—',
+            lastStatus: att?.lastStatus || '—',
+            linkedTo: describeLinks(p),
+          };
+        };
+
+        // One section per linked school — everyone who belongs to that school lives inside it.
+        const builtGroups: SheetGroup[] = schoolIds.map((schoolId: string) => {
+          const schoolProfile = profileById[schoolId];
+          const memberRows = allProfiles
+            .filter((p: any) => p.role !== 'admin' && p.role !== 'school' && p.school_id === schoolId)
+            .map(rowFor)
+            .sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
+          return {
+            key: schoolId,
+            label: schoolProfile?.full_name || 'Unnamed School',
+            sublabel: schoolProfile?.email ? `Contact: ${schoolProfile.email}` : undefined,
+            rows: memberRows,
+          };
+        });
+
+        setGroups(builtGroups);
+      } catch (err) {
+        console.error('[NetworkLinks] Failed to load admin directory:', err);
+        toast.error('Failed to load the directory.');
+      }
+      setLoading(false);
+    };
+    load();
+  }, [profile.id, supabase]);
+
+  return (
+    <SectionedSheet
+      groups={groups}
+      loading={loading}
+      title="Directory"
+      subtitle="One section per linked school — mentors, students, parents, and counselors at each, with who's connected to whom and their live attendance."
+      emptyMessage="No schools linked yet. Link a school from your Admin Dashboard to see it here."
+    />
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function NetworkLinksContent() {
+  const router = useRouter();
   const { profile, refreshProfile } = useAuth();
 
   if (!profile) {
@@ -1009,6 +1788,10 @@ export default function NetworkLinksContent() {
 
       {(profile.role === 'counselor' || profile.role === 'school') && (
         <CounselorSchoolSection profile={profile} />
+      )}
+
+      {profile.role === 'admin' && (
+        <AdminSection profile={profile} />
       )}
     </div>
   );

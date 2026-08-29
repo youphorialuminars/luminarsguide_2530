@@ -60,16 +60,16 @@ interface InviteCode {
 }
 
 const PILLARS = [
-  'Teamwork and Leadership',
-  'Digital Hygiene and Privacy Literacy',
-  'Emotional Resilience and Mental Well-being',
-  'Personal Safety, Consent, and Boundaries',
-  'Civic Sense and Social Responsibility',
+  'Relational Intelligence and Community Stewardship',
+  'Digital Wisdom and Citizenship',
+  'Psychological Fortitude and Mindfulness',
+  'Bodily Integrity and Social Conscientiousness',
+  'Authentic Identity and Purposeful Worth',
 ];
 
 const PILLAR_COLORS = ['#c4b5fd', '#93c5fd', '#86efac', '#fcd34d', '#f9a8d4'];
 
-type DashboardTab = 'overview' | 'mentors' | 'students' | 'invites';
+type DashboardTab = 'overview' | 'mentors' | 'students' | 'invites' | 'programs' | 'suggestions';
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub }: { icon: string; label: string; value: string | number; sub?: string }) {
@@ -308,8 +308,26 @@ export default function CounselorDashboardContent() {
   const [reports, setReports] = useState<Record<string, string>>({});
   const [generatingCode, setGeneratingCode] = useState(false);
   const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t as DashboardTab);
+  }, [searchParams]);
   const [globalSearch, setGlobalSearch] = useState(searchParams.get('q') || '');
   const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
+  const [programs, setPrograms] = useState<{ id: string; posted_by: string; posted_by_role: string; title: string; description: string; program_date: string | null; external_link: string | null; file_url: string | null; file_name: string | null }[]>([]);
+  const [posterNames, setPosterNames] = useState<Record<string, string>>({});
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [suggestionRecipientRole, setSuggestionRecipientRole] = useState('');
+  const [suggestionRecipientOptions, setSuggestionRecipientOptions] = useState<{ id: string; name: string }[]>([]);
+  const [suggestionRecipientId, setSuggestionRecipientId] = useState('');
+  const [suggestionType, setSuggestionType] = useState<'suggestion' | 'feedback' | 'query'>('suggestion');
+  const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [revealIdentity, setRevealIdentity] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [receivedSuggestions, setReceivedSuggestions] = useState<any[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [senderNames, setSenderNames] = useState<Record<string, string>>({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -317,14 +335,20 @@ export default function CounselorDashboardContent() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/sign-up-login'); return; }
 
-      const { data: profile } = await supabase
+      let { data: profile } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
+
+      if (!profile) {
+        await new Promise((r) => setTimeout(r, 500));
+        const retry = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+        profile = retry.data;
+      }
 
       if (!profile || profile.role !== 'counselor') {
-        router.push('/student-dashboard');
+        router.push('/sign-up-login');
         return;
       }
       setCounselorProfile(profile);
@@ -363,7 +387,30 @@ export default function CounselorDashboardContent() {
             : Promise.resolve({ data: [] }),
         ]);
 
-        const studentList = studResult.data || [];
+        // Students found via their mentor's link to this counselor
+        const mentorLinkedStudents = studResult.data || [];
+
+        // ALSO check for students linked directly to this counselor (independent of any mentor)
+        const { data: directStudents } = await supabase
+          .from('user_profiles')
+          .select('id, full_name, mentor_id')
+          .eq('counselor_id', user.id)
+          .eq('role', 'student');
+
+        const seenIds = new Set(mentorLinkedStudents.map((s: any) => s.id));
+        const extraStudents = (directStudents || [])
+          .filter((p: any) => !seenIds.has(p.id))
+          .map((p: any) => ({
+            id: p.id,
+            name: p.full_name || 'Student',
+            grade: '',
+            mentor_id: p.mentor_id || null,
+            avg_score: 0,
+            sessions: 0,
+            trend: 'stable',
+          }));
+
+        const studentList = [...mentorLinkedStudents, ...extraStudents];
         setStudents(studentList);
         setSessions(sessResult.data || []);
         setAttendance(attResult.data || []);
@@ -413,6 +460,141 @@ export default function CounselorDashboardContent() {
     s.name.toLowerCase().includes(globalSearch.toLowerCase()) ||
     s.grade?.toLowerCase().includes(globalSearch.toLowerCase())
   );
+
+  const COUNSELOR_CAN_SEND_TO = ['mentor', 'parent', 'admin'];
+
+  const loadSuggestionRecipients = useCallback(async (role: string) => {
+    if (!role) { setSuggestionRecipientOptions([]); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    let options: { id: string; name: string }[] = [];
+
+    if (role === 'mentor') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('counselor_id', user.id).eq('role', 'mentor');
+      options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Mentor' }));
+    } else if (role === 'parent') {
+      const { data: myStudents } = await supabase.from('user_profiles').select('id').eq('counselor_id', user.id).eq('role', 'student');
+      const studentUserIds = (myStudents || []).map((s: any) => s.id);
+      if (studentUserIds.length > 0) {
+        const { data: studentRows } = await supabase.from('students').select('id').in('student_user_id', studentUserIds);
+        const studentIds = (studentRows || []).map((s: any) => s.id);
+        if (studentIds.length > 0) {
+          const { data: links } = await supabase.from('parent_student_links').select('parent_id').in('student_id', studentIds);
+          const parentIds = Array.from(new Set((links || []).map((l: any) => l.parent_id)));
+          if (parentIds.length > 0) {
+            const { data: people } = await supabase.from('user_profiles').select('id, full_name').in('id', parentIds);
+            options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Parent' }));
+          }
+        }
+      }
+    } else if (role === 'admin') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('role', 'admin');
+      options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Admin' }));
+    }
+
+    setSuggestionRecipientOptions(options);
+    setSuggestionRecipientId('');
+  }, [supabase]);
+
+  useEffect(() => {
+    loadSuggestionRecipients(suggestionRecipientRole);
+  }, [suggestionRecipientRole, loadSuggestionRecipients]);
+
+  const handleSendSuggestion = async () => {
+    if (!suggestionRecipientId || !suggestionMessage.trim()) {
+      toast.error('Please choose a recipient and write a message.');
+      return;
+    }
+    setSendingSuggestion(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSendingSuggestion(false); return; }
+
+    const { error } = await supabase.from('suggestions').insert({
+      sender_id: user.id,
+      sender_role: 'counselor',
+      recipient_id: suggestionRecipientId,
+      recipient_role: suggestionRecipientRole,
+      type: suggestionType,
+      message: suggestionMessage.trim(),
+      is_anonymous: !revealIdentity,
+    });
+
+    if (error) {
+      toast.error('Failed to send: ' + error.message);
+    } else {
+      toast.success('Sent!');
+      setSuggestionMessage('');
+      setSuggestionRecipientRole('');
+      setSuggestionRecipientId('');
+      setRevealIdentity(false);
+    }
+    setSendingSuggestion(false);
+  };
+
+  const loadReceivedSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSuggestionsLoading(false); return; }
+
+    const { data } = await supabase
+      .rpc('get_my_suggestions');
+
+    setReceivedSuggestions(data || []);
+
+    const revealedSenderIds = (data || []).filter((s: any) => !s.is_anonymous).map((s: any) => s.sender_id);
+    if (revealedSenderIds.length > 0) {
+      const { data: senders } = await supabase.from('user_profiles').select('id, full_name').in('id', revealedSenderIds);
+      const names: Record<string, string> = {};
+      (senders || []).forEach((p: any) => { names[p.id] = p.full_name || 'Unknown'; });
+      setSenderNames(names);
+    }
+    setSuggestionsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'suggestions') loadReceivedSuggestions();
+  }, [activeTab, loadReceivedSuggestions]);
+
+  const handleMarkResolved = async (id: string) => {
+    const { error } = await supabase.from('suggestions').update({ status: 'resolved' }).eq('id', id);
+    if (!error) { loadReceivedSuggestions(); }
+  };
+
+  const loadPrograms = useCallback(async () => {
+    setProgramsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setProgramsLoading(false); return; }
+
+    const { data: myMentors } = await supabase.from('user_profiles').select('id, school_id').eq('counselor_id', user.id).eq('role', 'mentor');
+    const mentorIds = (myMentors || []).map((m: any) => m.id);
+    const schoolIds = Array.from(new Set((myMentors || []).map((m: any) => m.school_id).filter(Boolean)));
+    const posterIds = [...mentorIds, ...schoolIds];
+
+    if (posterIds.length === 0) { setPrograms([]); setProgramsLoading(false); return; }
+
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .in('posted_by', posterIds)
+      .order('created_at', { ascending: false });
+    setPrograms(data || []);
+    if (data && data.length > 0) {
+      const posterIds = Array.from(new Set(data.map((p) => p.posted_by)));
+      const { data: posters } = await supabase
+        .from('user_profiles')
+        .select('id, full_name')
+        .in('id', posterIds);
+      const names: Record<string, string> = {};
+      (posters || []).forEach((p) => { names[p.id] = p.full_name || 'Unknown'; });
+      setPosterNames(names);
+    }
+    setProgramsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'programs') loadPrograms();
+  }, [activeTab, loadPrograms]);
 
   const handleGenerateCode = async () => {
     if (!counselorProfile) return;
@@ -548,6 +730,8 @@ Please synthesize this data into a qualitative performance report covering: (1) 
     { id: 'mentors', label: 'Mentor Directory', icon: 'AcademicCapIcon' },
     { id: 'students', label: 'Student Directory', icon: 'UserGroupIcon' },
     { id: 'invites', label: 'Invite Codes', icon: 'KeyIcon' },
+    { id: 'programs', label: 'Programs & Events', icon: 'MegaphoneIcon' },
+    { id: 'suggestions', label: 'Suggestion Portal', icon: 'ChatBubbleLeftEllipsisIcon' },
   ];
 
   return (
@@ -563,24 +747,6 @@ Please synthesize this data into a qualitative performance report covering: (1) 
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Global Search Bar */}
-          <div className="relative">
-            <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              className="input-mystic pl-9 w-52"
-              placeholder="Search mentors & students…"
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-            />
-            {globalSearch && (
-              <button
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setGlobalSearch('')}
-              >
-                <Icon name="XMarkIcon" size={14} />
-              </button>
-            )}
-          </div>
           <button
             onClick={handleGenerateCode}
             disabled={generatingCode}
@@ -593,24 +759,6 @@ Please synthesize this data into a qualitative performance report covering: (1) 
             )}
           </button>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-6 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-600 transition-all whitespace-nowrap ${
-              activeTab === tab.id
-                ? 'bg-card text-foreground shadow-sm border border-border'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon name={tab.icon as any} size={15} variant={activeTab === tab.id ? 'solid' : 'outline'} />
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {/* Overview Tab */}
@@ -754,6 +902,134 @@ Please synthesize this data into a qualitative performance report covering: (1) 
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Programs & Events Tab */}
+      {activeTab === 'programs' && (
+        <div className="flex flex-col gap-4 animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="MegaphoneIcon" size={18} className="text-primary" />
+              <h3 className="text-base font-700 text-foreground">Programs & Events</h3>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">Read Only</span>
+            </div>
+            {programsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : programs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No programs posted yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {programs.map((p) => (
+                  <div key={p.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-sm font-700 text-foreground">{p.title}</span>
+                      <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${p.posted_by_role === 'school' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                        {p.posted_by_role === 'school' ? 'School' : 'Mentor'}: {posterNames[p.posted_by] || '...'}
+                      </span>
+                      {p.program_date && (
+                        <span className="text-xs text-muted-foreground">{new Date(p.program_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed mb-2">{p.description}</p>
+                    <div className="flex items-center gap-3">
+                      {p.external_link && (
+                        <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                          <Icon name="LinkIcon" size={12} /> Open Link
+                        </a>
+                      )}
+                      {p.file_url && (
+                        <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                          <Icon name="DocumentIcon" size={12} /> {p.file_name}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SUGGESTION PORTAL TAB ─────────────────────────────────────────── */}
+      {activeTab === 'suggestions' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="PaperAirplaneIcon" size={18} className="text-primary" />
+              Send a Suggestion, Feedback, or Query
+            </h2>
+            <div className="flex flex-col gap-3">
+              <select className="input-mystic" value={suggestionRecipientRole} onChange={(e) => setSuggestionRecipientRole(e.target.value)}>
+                <option value="">Send to...</option>
+                {COUNSELOR_CAN_SEND_TO.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              {suggestionRecipientRole && (
+                <select className="input-mystic" value={suggestionRecipientId} onChange={(e) => setSuggestionRecipientId(e.target.value)}>
+                  <option value="">Choose a specific person...</option>
+                  {suggestionRecipientOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              )}
+              <select className="input-mystic" value={suggestionType} onChange={(e) => setSuggestionType(e.target.value as any)}>
+                <option value="suggestion">Suggestion</option>
+                <option value="feedback">Feedback</option>
+                <option value="query">Query</option>
+              </select>
+              <textarea
+                className="input-mystic min-h-[80px] resize-none"
+                placeholder="Write your message..."
+                value={suggestionMessage}
+                onChange={(e) => setSuggestionMessage(e.target.value)}
+              />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={revealIdentity} onChange={(e) => setRevealIdentity(e.target.checked)} className="w-4 h-4 rounded border-border" />
+                <span className="text-sm text-foreground">Reveal my identity to the recipient (otherwise sent anonymously)</span>
+              </label>
+              <button className="btn-primary self-start" onClick={handleSendSuggestion} disabled={sendingSuggestion}>
+                {sendingSuggestion ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="InboxIcon" size={18} className="text-primary" />
+              Received
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {receivedSuggestions.length} total
+              </span>
+            </h2>
+            {suggestionsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : receivedSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Nothing received yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {receivedSuggestions.map((s) => (
+                  <div key={s.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-xs font-600 text-primary">
+                        {s.is_anonymous ? `Anonymous ${s.sender_role}` : (senderNames[s.sender_id] || s.sender_role)}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-card border border-border text-muted-foreground">{s.type}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${s.status === 'resolved' ? 'bg-positive/10 text-positive border-positive/20' : 'bg-muted text-muted-foreground border-border'}`}>{s.status}</span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{s.message}</p>
+                    {s.status !== 'resolved' && (
+                      <button className="btn-ghost text-xs py-1 px-3 mt-2" onClick={() => handleMarkResolved(s.id)}>
+                        Mark as Resolved
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

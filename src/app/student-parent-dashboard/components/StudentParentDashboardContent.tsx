@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -33,6 +33,8 @@ interface Task {
   priority_rating: number;
   deadline: string | null;
   requires_submission: boolean;
+  student_id?: string;
+  mentor_id?: string;
 }
 
 interface TaskSubmission {
@@ -119,6 +121,57 @@ function getQuestTier(completedCount: number) {
     bgColor: 'bg-sky-50 border-sky-200', glowClass: 'shadow-sky-200',
     nextAt: 5, progress: Math.round((completedCount / 5) * 100),
   };
+}
+
+// ─── Mic Button ────────────────────────────────────────────────────────────
+function MicButton({ onResult }: { onResult: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice input is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript + ' ';
+      }
+      onResult(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      toast.error('Voice input error. Please try again.');
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggleListening}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+        listening ? 'bg-negative text-white animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'
+      }`}
+      title={listening ? 'Stop recording' : 'Start voice input'}
+    >
+      <Icon name={listening ? 'StopIcon' : 'MicrophoneIcon'} size={15} />
+    </button>
+  );
 }
 
 // ─── Star Rating Component ────────────────────────────────────────────────────
@@ -216,7 +269,15 @@ export default function StudentParentDashboardContent() {
   const [reflections, setReflections] = useState<Reflection[]>([]);
   const [mentorFeedbacks, setMentorFeedbacks] = useState<MentorFeedback[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback'>('overview');
+  const searchParamsTab = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'surveys' | 'calendar' | 'report' | 'feedback' | 'programs' | 'suggestions'>(
+    (searchParamsTab.get('tab') as any) || 'overview'
+  );
+
+  useEffect(() => {
+    const t = searchParamsTab.get('tab');
+    if (t) setActiveTab(t as any);
+  }, [searchParamsTab]);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [taskSubmissions, setTaskSubmissions] = useState<TaskSubmission[]>([]);
   const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
@@ -233,8 +294,20 @@ export default function StudentParentDashboardContent() {
   const [submittingReflection, setSubmittingReflection] = useState(false);
 
   // Feedback form state
-  const [feedbackForm, setFeedbackForm] = useState({ mentor_interaction_score: 5, active_listening_score: 5, teaching_clarity_score: 5, fruitful_comments: '' });
+  const [linkedMentors, setLinkedMentors] = useState<{ id: string; name: string }[]>([]);
+  const [mySchoolId, setMySchoolId] = useState<string | null>(null);
+  const [suggestionRecipientRole, setSuggestionRecipientRole] = useState('');
+  const [suggestionRecipientOptions, setSuggestionRecipientOptions] = useState<{ id: string; name: string }[]>([]);
+  const [suggestionRecipientId, setSuggestionRecipientId] = useState('');
+  const [suggestionType, setSuggestionType] = useState<'suggestion' | 'feedback' | 'query'>('suggestion');
+  const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [revealIdentity, setRevealIdentity] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({ mentor_id: '', mentor_interaction_score: 5, active_listening_score: 5, teaching_clarity_score: 5, emotional_safety_score: 5, independence_score: 5, fruitful_comments: '', appreciation_note: '' });
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [programs, setPrograms] = useState<{ id: string; posted_by_role: string; title: string; description: string; program_date: string | null; external_link: string | null; file_url: string | null; file_name: string | null }[]>([]);
+  const [posterNames, setPosterNames] = useState<Record<string, string>>({});
+  const [programsLoading, setProgramsLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -242,48 +315,68 @@ export default function StudentParentDashboardContent() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/sign-up-login'); return; }
 
-      const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
+      let { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+      if (!profile) {
+        await new Promise((r) => setTimeout(r, 500));
+        const retry = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+        profile = retry.data;
+      }
       if (!profile) { router.push('/sign-up-login'); return; }
       setUserProfile(profile);
 
       // Middleware handles role-based redirects; no manual redirect needed here
 
-      if (profile.student_id) {
-        const { data: student } = await supabase.from('students').select('*').eq('id', profile.student_id).single();
-        setStudentProfile(student);
+      // Find every `students` row that belongs to this person — one per linked mentor,
+      // not just the single one saved on their profile. This is what lets a student see
+      // tasks/attendance from ALL their mentors, not just their very first one.
+      const { data: allMyStudentRows } = await supabase
+        .from('students')
+        .select('*')
+        .eq('student_user_id', user.id);
 
-        if (student) {
-          const [
-            taskResult,
-            surveyResult,
-            attResult,
-            meetResult,
-            sessResult,
-            submissionResult,
-          ] = await Promise.all([
-            supabase.from('student_tasks').select('*').eq('student_id', student.id).order('created_at', { ascending: false }),
-            supabase.from('surveys').select('*').eq('mentor_id', student.mentor_id).order('created_at', { ascending: false }),
-            supabase.from('attendance').select('attendance_date, status').eq('student_id', student.id).order('attendance_date', { ascending: false }),
-            supabase.from('meetings').select('*').eq('student_id', student.id).order('meeting_date', { ascending: false }),
-            supabase.from('sessions').select('*').eq('student_id', student.id).order('created_at', { ascending: false }).limit(5),
-            supabase.from('task_submissions').select('*').eq('student_id', student.id),
-          ]);
+      const studentRows = allMyStudentRows || [];
 
-          const taskData = taskResult.data;
-          const surveyData = surveyResult.data;
-          const attData = attResult.data;
-          const meetData = meetResult.data;
-          const sessData = sessResult.data;
+      if (studentRows.length > 0) {
+        // Use the profile's primary student record for display (name/grade shown at top),
+        // falling back to the first one found if that specific link is missing for any reason
+        const primaryStudent = studentRows.find((s) => s.id === profile.student_id) || studentRows[0];
+        setStudentProfile(primaryStudent);
 
-          setTasks(taskData || []);
-          setSurveys(surveyData || []);
-          setAttendance(attData || []);
-          setMeetings(meetData || []);
-          setSessions(sessData || []);
-          setTaskSubmissions(submissionResult.data || []);
-          
-          // Parent leaderboard is strictly in Parent Hub — not shown in student view
+        const allStudentIds = studentRows.map((s) => s.id);
+        const allMentorIds = Array.from(new Set(studentRows.map((s) => s.mentor_id).filter(Boolean)));
+
+        if (allMentorIds.length > 0) {
+          const { data: mentorProfiles } = await supabase
+            .from('user_profiles')
+            .select('id, full_name')
+            .in('id', allMentorIds);
+          setLinkedMentors((mentorProfiles || []).map((m) => ({ id: m.id, name: m.full_name || 'Mentor' })));
         }
+
+        const [
+          taskResult,
+          surveyResult,
+          attResult,
+          meetResult,
+          sessResult,
+          submissionResult,
+        ] = await Promise.all([
+          supabase.from('student_tasks').select('*').in('student_id', allStudentIds).order('created_at', { ascending: false }),
+          supabase.from('surveys').select('*').in('mentor_id', allMentorIds).order('created_at', { ascending: false }),
+          supabase.from('attendance').select('attendance_date, status').in('student_id', allStudentIds).order('attendance_date', { ascending: false }),
+          supabase.from('meetings').select('*').in('student_id', allStudentIds).order('meeting_date', { ascending: false }),
+          supabase.from('sessions').select('*').in('student_id', allStudentIds).order('created_at', { ascending: false }).limit(5),
+          supabase.from('task_submissions').select('*').in('student_id', allStudentIds),
+        ]);
+
+        setTasks(taskResult.data || []);
+        setSurveys(surveyResult.data || []);
+        setAttendance(attResult.data || []);
+        setMeetings(meetResult.data || []);
+        setSessions(sessResult.data || []);
+        setTaskSubmissions(submissionResult.data || []);
+
+        // Parent leaderboard is strictly in Parent Hub — not shown in student view
       }
 
       const [reflResult, mfResult] = await Promise.all([
@@ -361,6 +454,46 @@ export default function StudentParentDashboardContent() {
     setLinkingMentor(false);
   };
 
+  useEffect(() => {
+    if (linkedMentors.length > 0 && !feedbackForm.mentor_id) {
+      setFeedbackForm((f) => ({ ...f, mentor_id: linkedMentors[0].id }));
+    }
+  }, [linkedMentors]);
+
+  const loadPrograms = useCallback(async () => {
+    setProgramsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setProgramsLoading(false); return; }
+
+    const { data: myProfile } = await supabase.from('user_profiles').select('school_id').eq('id', user.id).maybeSingle();
+    setMySchoolId(myProfile?.school_id || null);
+    const posterIds = [...linkedMentors.map((m) => m.id), myProfile?.school_id].filter(Boolean);
+
+    if (posterIds.length === 0) { setPrograms([]); setProgramsLoading(false); return; }
+
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .in('posted_by', posterIds)
+      .order('created_at', { ascending: false });
+    setPrograms(data || []);
+    if (data && data.length > 0) {
+      const posterIds = Array.from(new Set(data.map((p: any) => p.posted_by)));
+      const { data: posters } = await supabase
+        .from('user_profiles')
+        .select('id, full_name')
+        .in('id', posterIds);
+      const names: Record<string, string> = {};
+      (posters || []).forEach((p) => { names[p.id] = p.full_name || 'Unknown'; });
+      setPosterNames(names);
+    }
+    setProgramsLoading(false);
+  }, [supabase, linkedMentors]);
+
+  useEffect(() => {
+    if (activeTab === 'programs') loadPrograms();
+  }, [activeTab, loadPrograms]);
+
   const completedTasks = tasks.filter((t) => t.status === 'Completed').length;
   const tier = getQuestTier(completedTasks);
 
@@ -395,7 +528,6 @@ export default function StudentParentDashboardContent() {
   };
 
   const handleFileUpload = async (task: Task, file: File) => {
-    if (!studentProfile) { toast.error('No student profile linked.'); return; }
     setUploadingTaskId(task.id);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setUploadingTaskId(null); return; }
@@ -411,10 +543,12 @@ export default function StudentParentDashboardContent() {
 
     const { data: urlData } = supabase.storage.from('task-submissions').getPublicUrl(filePath);
 
+    // Use this specific task's own student_id/mentor_id, not the "primary" one —
+    // the task being submitted for might belong to any of the student's linked mentors
     const { error: insertError } = await supabase.from('task_submissions').insert({
       task_id: task.id,
-      student_id: studentProfile.id,
-      mentor_id: studentProfile.mentor_id,
+      student_id: (task as any).student_id,
+      mentor_id: (task as any).mentor_id,
       file_url: urlData.publicUrl,
       file_name: file.name,
       file_type: file.type,
@@ -454,22 +588,99 @@ export default function StudentParentDashboardContent() {
     setSubmittingReflection(false);
   };
 
+  const STUDENT_CAN_SEND_TO = ['mentor', 'counselor', 'admin'];
+
+  const loadSuggestionRecipients = useCallback(async (role: string) => {
+    if (!role) { setSuggestionRecipientOptions([]); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    let options: { id: string; name: string }[] = [];
+
+    if (role === 'mentor') {
+      options = linkedMentors;
+    } else if (role === 'counselor') {
+      const { data: myProfile } = await supabase.from('user_profiles').select('counselor_id').eq('id', user.id).maybeSingle();
+      if (myProfile?.counselor_id) {
+        const { data: counselor } = await supabase.from('user_profiles').select('id, full_name').eq('id', myProfile.counselor_id).maybeSingle();
+        if (counselor) options = [{ id: counselor.id, name: counselor.full_name || 'Counselor' }];
+      }
+    } else if (role === 'admin') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('role', 'admin');
+      options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Admin' }));
+    }
+
+    setSuggestionRecipientOptions(options);
+    setSuggestionRecipientId('');
+  }, [supabase, linkedMentors]);
+
+  useEffect(() => {
+    loadSuggestionRecipients(suggestionRecipientRole);
+  }, [suggestionRecipientRole, loadSuggestionRecipients]);
+
+  const handleSendSuggestion = async () => {
+    if (!suggestionRecipientId || !suggestionMessage.trim()) {
+      toast.error('Please choose a recipient and write a message.');
+      return;
+    }
+    setSendingSuggestion(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSendingSuggestion(false); return; }
+
+    const { error } = await supabase.from('suggestions').insert({
+      sender_id: user.id,
+      sender_role: 'student',
+      recipient_id: suggestionRecipientId,
+      recipient_role: suggestionRecipientRole,
+      type: suggestionType,
+      message: suggestionMessage.trim(),
+      is_anonymous: !revealIdentity,
+    });
+
+    if (error) {
+      toast.error('Failed to send: ' + error.message);
+    } else {
+      toast.success('Sent!');
+      setSuggestionMessage('');
+      setSuggestionRecipientRole('');
+      setSuggestionRecipientId('');
+      setRevealIdentity(false);
+    }
+    setSendingSuggestion(false);
+  };
+
   const handleSubmitFeedback = async () => {
-    if (!studentProfile) { toast.error('No student profile linked.'); return; }
+    if (!feedbackForm.mentor_id) { toast.error('Please select which mentor this feedback is about.'); return; }
     setSubmittingFeedback(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    // Find this specific mentor's own `students` row for this student, since feedback
+    // is stored against a particular mentor relationship, not just "the student" in general
+    const matchingStudentRow = tasks.length > 0
+      ? null
+      : null;
+    const { data: studentRowForMentor } = await supabase
+      .from('students')
+      .select('id')
+      .eq('student_user_id', user.id)
+      .eq('mentor_id', feedbackForm.mentor_id)
+      .maybeSingle();
     const { error } = await supabase.from('mentor_feedback').insert({
-      student_id: studentProfile.id,
+      student_id: studentRowForMentor?.id || studentProfile?.id,
+      mentor_id: feedbackForm.mentor_id,
       submitted_by: user.id,
       mentor_interaction_score: feedbackForm.mentor_interaction_score,
       active_listening_score: feedbackForm.active_listening_score,
       teaching_clarity_score: feedbackForm.teaching_clarity_score,
+      emotional_safety_score: feedbackForm.emotional_safety_score,
+      independence_score: feedbackForm.independence_score,
       fruitful_comments: feedbackForm.fruitful_comments,
+      appreciation_note: feedbackForm.appreciation_note.trim() || null,
     });
+
     if (error) { toast.error('Failed to submit feedback.'); } else {
       toast.success('Feedback submitted! Thank you.');
-      setFeedbackForm({ mentor_interaction_score: 5, active_listening_score: 5, teaching_clarity_score: 5, fruitful_comments: '' });
+      setFeedbackForm({ mentor_id: linkedMentors[0]?.id || '', mentor_interaction_score: 5, active_listening_score: 5, teaching_clarity_score: 5, emotional_safety_score: 5, independence_score: 5, fruitful_comments: '', appreciation_note: '' });
       loadData();
     }
     setSubmittingFeedback(false);
@@ -493,9 +704,18 @@ export default function StudentParentDashboardContent() {
     { id: 'calendar', label: 'Calendar', icon: 'CalendarDaysIcon' },
     { id: 'report', label: 'Report Card', icon: 'DocumentTextIcon' },
     { id: 'feedback', label: 'Mentor Feedback', icon: 'StarIcon' },
+    { id: 'programs', label: 'Programs & Events', icon: 'MegaphoneIcon' },
+    { id: 'suggestions', label: 'Suggestion Portal', icon: 'ChatBubbleLeftEllipsisIcon' },
   ];
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const formatTime = (t: string) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+  };
 
   const statusOptions: Task['status'][] = ['Pending', 'In Progress', 'Completed'];
 
@@ -514,24 +734,6 @@ export default function StudentParentDashboardContent() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Global Search Bar */}
-          <div className="relative">
-            <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              className="input-mystic pl-9 w-48"
-              placeholder="Search tasks…"
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-            />
-            {globalSearch && (
-              <button
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setGlobalSearch('')}
-              >
-                <Icon name="XMarkIcon" size={14} />
-              </button>
-            )}
-          </div>
           <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border-2 shadow-lg ${tier.bgColor} ${tier.glowClass}`}>
             <span className="text-2xl">{tier.icon}</span>
             <div>
@@ -545,77 +747,17 @@ export default function StudentParentDashboardContent() {
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-6 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-600 whitespace-nowrap transition-all ${
-              activeTab === tab.id ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon name={tab.icon as any} size={15} variant={activeTab === tab.id ? 'solid' : 'outline'} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {/* ── OVERVIEW TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
         <div className="flex flex-col gap-6">
+
           {/* ── LINK TO MENTOR SECTION ─────────────────────────────────────── */}
-          {!userProfile?.mentor_id ? (
-            <div className="card-mystic p-5 border-2 border-dashed border-primary/30 bg-primary/3">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Icon name="LinkIcon" size={20} className="text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-base font-700 text-foreground">Link to Your Mentor</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Enter the invite code your mentor gave you to connect your account.</p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Icon name="KeyIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                  <input
-                    className="input-mystic pl-9 font-mono tracking-widest uppercase"
-                    placeholder="e.g. ABC-123456"
-                    maxLength={10}
-                    value={mentorInviteCode}
-                    onChange={(e) => setMentorInviteCode(e.target.value.toUpperCase())}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleLinkToMentor(); }}
-                  />
-                </div>
-                <button
-                  className="btn-primary flex-shrink-0"
-                  onClick={handleLinkToMentor}
-                  disabled={linkingMentor}
-                >
-                  {linkingMentor ? (
-                    <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Linking...</>
-                  ) : (
-                    <><Icon name="LinkIcon" size={15} /> Link to Mentor</>
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
-                <Icon name="InformationCircleIcon" size={13} className="text-info flex-shrink-0" />
-                Ask your mentor for their invite code (format: ABC-123456).
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 rounded-xl bg-positive/5 border border-positive/20 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-positive/10 flex items-center justify-center flex-shrink-0">
-                <Icon name="CheckCircleIcon" size={18} className="text-positive" />
-              </div>
-              <div>
-                <p className="text-sm font-700 text-foreground">Linked to Mentor</p>
-                <p className="text-xs text-muted-foreground">{linkedMentorName || 'Your mentor account is connected.'}</p>
-              </div>
-            </div>
-          )}
+         <div className="p-4 rounded-xl bg-info/5 border border-info/20 flex items-center gap-3">
+            <Icon name="InformationCircleIcon" size={18} className="text-info flex-shrink-0" />
+            <p className="text-sm text-foreground/80">
+              To link a new mentor, use the <strong>Network & Links</strong> page.
+            </p>
+          </div>
 
           {/* Quest Progress */}
           <div className="card-mystic p-5">
@@ -681,7 +823,7 @@ export default function StudentParentDashboardContent() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-600 text-foreground">{m.title}</p>
-                      <p className="text-xs text-muted-foreground">{formatDate(m.meeting_date)} at {m.meeting_time}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(m.meeting_date)} at {formatTime(m.meeting_time)}</p>
                     </div>
                     {m.jitsi_url && (
                       <a href={m.jitsi_url} target="_blank" rel="noopener noreferrer" className="btn-primary text-xs py-1.5 px-3 flex-shrink-0">
@@ -828,7 +970,12 @@ export default function StudentParentDashboardContent() {
                             {s.file_name}
                           </a>
                           {s.mentor_rating ? (
-                            <span className="text-amber-500 flex-shrink-0">{'⭐'.repeat(s.mentor_rating)}</span>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-amber-500">{'⭐'.repeat(s.mentor_rating)}</span>
+                              {s.mentor_comments && (
+                                <p className="text-xs text-foreground/80 italic">"{s.mentor_comments}"</p>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-muted-foreground flex-shrink-0">Awaiting review</span>
                           )}
@@ -913,7 +1060,7 @@ export default function StudentParentDashboardContent() {
               School Calendar
               <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700">Performance &amp; Holidays</span>
             </h2>
-            <SchoolEventsCalendar />
+            <SchoolEventsCalendar schoolId={studentProfile?.school_id || null} />
           </div>
         </div>
       )}
@@ -970,7 +1117,10 @@ export default function StudentParentDashboardContent() {
             <div className="flex flex-col gap-4">
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">What did I learn this week? <span className="text-negative">*</span></label>
-                <textarea className="input-mystic min-h-[90px] resize-none" placeholder="Share your key learnings..." value={reflectionForm.learned_this_week} onChange={(e) => setReflectionForm((f) => ({ ...f, learned_this_week: e.target.value }))} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[90px] resize-none flex-1" placeholder="Share your key learnings..." value={reflectionForm.learned_this_week} onChange={(e) => setReflectionForm((f) => ({ ...f, learned_this_week: e.target.value }))} />
+                  <MicButton onResult={(text) => setReflectionForm((f) => ({ ...f, learned_this_week: (f.learned_this_week ? f.learned_this_week + ' ' : '') + text }))} />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Which aspects do I need to work on further?</label>
@@ -1002,7 +1152,7 @@ export default function StudentParentDashboardContent() {
               <div className="flex flex-col gap-3">
                 {reflections.slice(0, 3).map((r) => (
                   <div key={r.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
-                    <p className="text-xs text-muted-foreground mb-2">Week of {formatDate(r.week_start)}</p>
+                    <p className="text-xs text-muted-foreground mb-2">{formatDate(r.created_at)}</p>
                     <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">{r.learned_this_week}</p>
                     {r.mentor_response && (
                       <div className="mt-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
@@ -1018,6 +1168,95 @@ export default function StudentParentDashboardContent() {
         </div>
       )}
 
+      {/* ── PROGRAMS & EVENTS TAB (read-only) ───────────────────────────────── */}
+      {activeTab === 'programs' && (
+        <div className="card-mystic p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Icon name="MegaphoneIcon" size={18} className="text-primary" />
+            <h2 className="text-base font-700 text-foreground">Programs & Events</h2>
+            <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">Read Only</span>
+          </div>
+          {programsLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : programs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No programs posted yet. Check back soon!</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {programs.map((p: any) => (
+                <div key={p.id} className="p-4 rounded-xl bg-secondary/40 border border-border">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="text-sm font-700 text-foreground">{p.title}</span>
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${p.posted_by_role === 'school' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                      {p.posted_by_role === 'school' ? 'School' : 'Mentor'}: {posterNames[p.posted_by] || '...'}
+                    </span>
+                    {p.program_date && (
+                      <span className="text-xs text-muted-foreground">{formatDate(p.program_date)}</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/80 leading-relaxed mb-2">{p.description}</p>
+                  <div className="flex items-center gap-3">
+                    {p.external_link && (
+                      <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                        <Icon name="LinkIcon" size={12} /> Open Link
+                      </a>
+                    )}
+                    {p.file_url && (
+                      <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                        <Icon name="DocumentIcon" size={12} /> {p.file_name}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SUGGESTION PORTAL TAB (send-only) ───────────────────────────────── */}
+      {activeTab === 'suggestions' && (
+        <div className="card-mystic p-5">
+          <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+            <Icon name="PaperAirplaneIcon" size={18} className="text-primary" />
+            Send a Suggestion, Feedback, or Query
+          </h2>
+          <div className="flex flex-col gap-3">
+            <select className="input-mystic" value={suggestionRecipientRole} onChange={(e) => setSuggestionRecipientRole(e.target.value)}>
+              <option value="">Send to...</option>
+              {STUDENT_CAN_SEND_TO.map((r) => (
+                <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+              ))}
+            </select>
+            {suggestionRecipientRole && (
+              <select className="input-mystic" value={suggestionRecipientId} onChange={(e) => setSuggestionRecipientId(e.target.value)}>
+                <option value="">Choose a specific person...</option>
+                {suggestionRecipientOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            )}
+            <select className="input-mystic" value={suggestionType} onChange={(e) => setSuggestionType(e.target.value as any)}>
+              <option value="suggestion">Suggestion</option>
+              <option value="feedback">Feedback</option>
+              <option value="query">Query</option>
+            </select>
+            <textarea
+              className="input-mystic min-h-[80px] resize-none"
+              placeholder="Write your message..."
+              value={suggestionMessage}
+              onChange={(e) => setSuggestionMessage(e.target.value)}
+            />
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={revealIdentity} onChange={(e) => setRevealIdentity(e.target.checked)} className="w-4 h-4 rounded border-border" />
+              <span className="text-sm text-foreground">Reveal my identity to the recipient (otherwise sent anonymously)</span>
+            </label>
+            <button className="btn-primary self-start" onClick={handleSendSuggestion} disabled={sendingSuggestion}>
+              {sendingSuggestion ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── FEEDBACK TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'feedback' && (
         <div className="flex flex-col gap-6">
@@ -1027,12 +1266,42 @@ export default function StudentParentDashboardContent() {
               <h2 className="text-base font-700 text-foreground">Rate Your Mentor</h2>
             </div>
             <div className="flex flex-col gap-5">
+              {linkedMentors.length > 1 && (
+                <div>
+                  <label className="block text-sm font-600 text-foreground mb-1.5">Which mentor is this feedback about?</label>
+                  <select
+                    className="input-mystic"
+                    value={feedbackForm.mentor_id}
+                    onChange={(e) => setFeedbackForm((f) => ({ ...f, mentor_id: e.target.value }))}
+                  >
+                    {linkedMentors.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <StarRating label="Was my mentor fun and helpful?" value={feedbackForm.mentor_interaction_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, mentor_interaction_score: v }))} />
+              <StarRating label="Did my mentor make me feel safe and supported?" value={feedbackForm.emotional_safety_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, emotional_safety_score: v }))} />
+              <StarRating label="Did my mentor encourage me to think and act on my own?" value={feedbackForm.independence_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, independence_score: v }))} />
               <StarRating label="Did my mentor listen to me carefully?" value={feedbackForm.active_listening_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, active_listening_score: v }))} />
               <StarRating label="Did I understand the activities clearly?" value={feedbackForm.teaching_clarity_score} onChange={(v) => setFeedbackForm((f) => ({ ...f, teaching_clarity_score: v }))} />
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Additional Comments</label>
-                <textarea className="input-mystic min-h-[100px] resize-none" placeholder="Share any specific feedback..." value={feedbackForm.fruitful_comments} onChange={(e) => setFeedbackForm((f) => ({ ...f, fruitful_comments: e.target.value }))} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[100px] resize-none flex-1" placeholder="Share any specific feedback..." value={feedbackForm.fruitful_comments} onChange={(e) => setFeedbackForm((f) => ({ ...f, fruitful_comments: e.target.value }))} />
+                  <MicButton onResult={(text) => setFeedbackForm((f) => ({ ...f, fruitful_comments: (f.fruitful_comments ? f.fruitful_comments + ' ' : '') + text }))} />
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-50/10 border border-amber-400/30">
+                <label className="block text-sm font-600 text-foreground mb-1.5">
+                  🌟 Send Your Mentor a Shoutout <span className="text-xs font-400 text-muted-foreground">(OPTIONAL - You Mentor Needs A Healthy Motivation)</span>
+                </label>
+                <textarea
+                  className="input-mystic min-h-[80px] resize-none"
+                  placeholder="e.g. Thank you for always explaining things patiently..."
+                  value={feedbackForm.appreciation_note}
+                  onChange={(e) => setFeedbackForm((f) => ({ ...f, appreciation_note: e.target.value }))}
+                />
               </div>
               <button className="btn-primary self-start" onClick={handleSubmitFeedback} disabled={submittingFeedback}>
                 {submittingFeedback ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Submitting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Submit Feedback</>}

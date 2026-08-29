@@ -39,6 +39,78 @@
   --shadow-lg: 0 8px 32px rgba(124,111,205,0.16), 0 4px 12px rgba(124,111,205,0.10);
 }
 
+/* ─── Theme: Teal & Gold ─────────────────────────────────────────────────── */
+.theme-teal-gold {
+  --background: #F4FBF9;
+  --foreground: #0F3D3A;
+  --primary: #14877A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E1F3EF;
+  --secondary-foreground: #0F6B5F;
+  --accent: #D9A441;
+  --accent-foreground: #4A3200;
+  --muted: #E6F2EF;
+  --muted-foreground: #5C8A83;
+  --card: #FFFFFF;
+  --card-foreground: #0F3D3A;
+  --border: #CDE8E2;
+  --input: #E1F3EF;
+  --ring: #14877A;
+
+  --positive: #3F9E72;
+  --positive-bg: #EAF9F1;
+  --negative: #D9606A;
+  --negative-bg: #FDEEF0;
+  --warning: #D9A441;
+  --warning-bg: #FCF3E1;
+  --info: #3E8FB0;
+  --info-bg: #EAF5FA;
+
+  --gradient-start: #F4FBF9;
+  --gradient-mid: #E1F3EF;
+  --gradient-end: #FBF3E0;
+
+  --shadow-sm: 0 1px 3px rgba(20,135,122,0.08), 0 1px 2px rgba(20,135,122,0.06);
+  --shadow-md: 0 4px 16px rgba(20,135,122,0.12), 0 2px 6px rgba(20,135,122,0.08);
+  --shadow-lg: 0 8px 32px rgba(20,135,122,0.16), 0 4px 12px rgba(20,135,122,0.10);
+}
+
+/* ─── Theme: Dark Teal ───────────────────────────────────────────────────── */
+.theme-dark-teal {
+  --background: #0A1F1D;
+  --foreground: #E4F5F1;
+  --primary: #2FBFA8;
+  --primary-foreground: #052220;
+  --secondary: #123531;
+  --secondary-foreground: #7FDCC9;
+  --accent: #D9A441;
+  --accent-foreground: #2A1C00;
+  --muted: #163D38;
+  --muted-foreground: #7FA69E;
+  --card: #0F2B27;
+  --card-foreground: #E4F5F1;
+  --border: #1E4B45;
+  --input: #123531;
+  --ring: #2FBFA8;
+
+  --positive: #3FCB8F;
+  --positive-bg: #10362A;
+  --negative: #E5747D;
+  --negative-bg: #3A181C;
+  --warning: #E5BE6B;
+  --warning-bg: #3A2E10;
+  --info: #6BB8DA;
+  --info-bg: #142E3A;
+
+  --gradient-start: #0A1F1D;
+  --gradient-mid: #123531;
+  --gradient-end: #1A2A17;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.30), 0 1px 2px rgba(0,0,0,0.24);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.36), 0 2px 6px rgba(0,0,0,0.28);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.42), 0 4px 12px rgba(0,0,0,0.30);
+}
+
 @layer base {
   * {
     box-sizing: border-box;

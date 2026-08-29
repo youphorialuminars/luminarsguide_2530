@@ -13,6 +13,7 @@ const ROLE_ROUTES: Record<string, string[]> = {
   '/school-dashboard': ['school'],
   '/school-student-view': ['school'],
   '/school-mentor-view': ['school'],
+  '/admin-dashboard': ['admin'],
 };
 
 const ROLE_HOME: Record<string, string> = {
@@ -22,6 +23,7 @@ const ROLE_HOME: Record<string, string> = {
   parent: '/parents-hub',
   counselor: '/counselor-dashboard',
   school: '/school-dashboard',
+  admin: '/admin-dashboard',
 };
 
 export async function middleware(request: NextRequest) {
@@ -77,6 +79,7 @@ export const config = {
     '/school-dashboard/:path*',
     '/school-student-view/:path*',
     '/school-mentor-view/:path*',
+    '/admin-dashboard/:path*',
     '/network-links/:path*',
     '/settings/:path*',
   ],

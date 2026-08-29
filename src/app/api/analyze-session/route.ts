@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 // ============================================================
 // REQUIRED ENVIRONMENT VARIABLES (add to .env):
@@ -9,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 //   HUGGINGFACE_API_KEY     — Hugging Face (Fallback 4)
 // ============================================================
 
-const PROVIDER_TIMEOUT_MS = 8000; // 8-second timeout per provider
+const PROVIDER_TIMEOUT_MS = 30000; // 30-second timeout per provider (raised to test if 8s was cutting Gemini off too early)
 
 const VETERAN_EDUCATOR_PERSONA = `You are an extraordinarily accomplished and empathetic senior educator. You have 60+ years of active experience, are now retired, and are considered a veteran holding profound wisdom in mentorship. You are not a strict disciplinarian, but a guide. Your academic specializations include Educational Psychology, Team Building & Leadership development, Digital and Privacy Literacy (very modern understanding), and crucial aspects of student well-being: Emotional Regulation, Distress Tolerance, Personal Safety, Consent and Boundaries, Civic Sense, and Social Responsibility. In your long career, you have conducted seminal research across all these fields, personally taught over 3,000,000 students, and successfully empowered them across these diverse domains.
 
@@ -24,8 +26,8 @@ IMPORTANT INSTRUCTIONS:
 - Output ONLY valid JSON — no markdown, no preamble, no explanation outside the JSON`;
 
 const SENSITIVE_PILLARS = [
-  'Emotional Resilience and Mental Well-being',
-  'Personal Safety, Consent, and Boundaries',
+  'Psychological Fortitude and Mindfulness',
+  'Bodily Integrity and Social Conscientiousness',
 ];
 
 interface AnalysisRequest {
@@ -46,8 +48,6 @@ interface AnalysisRequest {
 }
 
 interface AnalysisResult {
-  strengths: string[];
-  weaknesses: string[];
   approachRequired: string[];
   taskList: string[];
 }
@@ -98,17 +98,24 @@ Based on ALL five observation areas synthesised together with the test score of 
 
 Respond with ONLY this JSON structure (no markdown, no extra text):
 {
-  "strengths": ["strength 1", "strength 2", "strength 3", "strength 4"],
-  "weaknesses": ["weakness 1", "weakness 2", "weakness 3", "weakness 4"],
   "approachRequired": ["approach 1", "approach 2", "approach 3", "approach 4"],
-  "taskList": ["task 1", "task 2", "task 3", "task 4", "task 5"]
+  "taskList": ["task 1", "task 2", "task 3"]
 }
 
 Requirements:
-- strengths: 3-5 specific, evidence-based strengths drawn from the observations
-- weaknesses: 3-5 specific development areas (frame constructively, not harshly)
-- approachRequired: 3-5 concrete pedagogical strategies the mentor should employ
-- taskList: 4-6 highly practical, immediately actionable tasks for the student — CRITICAL CONSTRAINT: every task in the taskList MUST be an individual, self-directed activity that can be completed independently at home or online (e.g., watch a video, complete an online quiz, write a journal entry, read an article, do a solo exercise). Do NOT suggest group activities, in-person meetups, or tasks requiring other people. Tasks must be specific to the pillar "${pillar}" and the five observation areas.`;
+- approachRequired: EXACTLY 3 concrete pedagogical strategies the mentor should employ — no more, no fewer.
+- taskList: EXACTLY 3 tasks — no more, no fewer. Every task MUST be:
+  1. An OFFLINE, real-world activity done independently at home — NEVER a video, app, website, quiz, or anything requiring a screen. Think: a real conversation to have, a note to write and hand to someone, a small real-world action to take, a reflection to write on paper.
+  2. Achievable with minimal or no materials — at most a pen and paper. Never require special supplies (no chart paper, art supplies, printouts, or purchased items).
+  3. A genuine BEHAVIOR or SOCIAL ACTION the child performs in their real life — not passive consumption of content.
+  4. Personally centered on THIS specific child — directly addressing something concrete from their own observations, test score, or the pillar "${pillar}".
+  5. WRITTEN IN VERY SIMPLE LANGUAGE for a child in grades 6-10 (age 11-16). Use short sentences. Use everyday words a 11-year-old would know — avoid academic or abstract vocabulary entirely (do NOT use words like "facilitate," "cultivate," "articulate," "reciprocal," "introspective," etc.). Each task description should be no more than 2 short sentences.
+  6. MUST include one concrete, ready-to-use EXAMPLE inside the task itself, so the student instantly understands what to do — not just an instruction, but a real sample of what they could say, write, or do.
+
+  Example of the correct tone, length, and format (for a shy child, Relational Intelligence pillar):
+  "Write a short thank-you note to one classmate. Example: 'Hi Riya, thanks for helping me with the group project. I liked working with you.' Give it to them in person."
+
+  Do NOT suggest anything involving screens, videos, apps, or websites. Do NOT suggest anything requiring special materials or purchases. Do NOT suggest group activities that require another adult present, but real peer interaction initiated by the child themselves (like the example above) is encouraged.`;
 }
 
 function parseAnalysisJSON(raw: string): AnalysisResult {
@@ -121,10 +128,8 @@ function parseAnalysisJSON(raw: string): AnalysisResult {
     parsed = JSON.parse(match[0]);
   }
   return {
-    strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
-    weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [],
     approachRequired: Array.isArray(parsed.approachRequired) ? parsed.approachRequired : [],
-    taskList: Array.isArray(parsed.taskList) ? parsed.taskList : [],
+    taskList: Array.isArray(parsed.taskList) ? parsed.taskList.slice(0, 3) : [],
   };
 }
 
@@ -134,11 +139,12 @@ function isRetryableError(status: number): boolean {
 
 // ── Provider: Gemini ─────────────────────────────────────────
 
-async function tryGemini(userPrompt: string, useProModel: boolean): Promise<AnalysisResult> {
+async function tryGemini(userPrompt: string): Promise<AnalysisResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your-gemini-api-key-here') throw new Error('GEMINI_API_KEY not configured');
 
-  const model = useProModel ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
+  // Using the one model confirmed available on this account — gemini-3.5-flash — for all requests
+  const model = 'gemini-3.5-flash';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
 
@@ -327,12 +333,10 @@ async function tryHuggingFace(userPrompt: string): Promise<AnalysisResult> {
 
 async function runWaterfallAnalysis(body: AnalysisRequest): Promise<{ analysis: AnalysisResult; providerUsed: string }> {
   const isSensitive = SENSITIVE_PILLARS.includes(body.pillar);
-  const totalObservationLength = Object.values(body.observations).join(' ').length;
-  const useProModel = isSensitive || totalObservationLength > 500;
   const userPrompt = buildUserPrompt(body);
 
   const providers: Array<{ name: string; fn: () => Promise<AnalysisResult> }> = [
-    { name: 'Gemini', fn: () => tryGemini(userPrompt, useProModel) },
+    { name: 'Gemini', fn: () => tryGemini(userPrompt) },
     { name: 'Groq', fn: () => tryGroq(userPrompt) },
     { name: 'Cohere', fn: () => tryCohere(userPrompt) },
     { name: 'OpenRouter', fn: () => tryOpenRouter(userPrompt) },
@@ -340,6 +344,7 @@ async function runWaterfallAnalysis(body: AnalysisRequest): Promise<{ analysis: 
   ];
 
   let lastError: Error | null = null;
+  let geminiError: Error | null = null;
 
   for (const provider of providers) {
     try {
@@ -347,9 +352,10 @@ async function runWaterfallAnalysis(body: AnalysisRequest): Promise<{ analysis: 
       return { analysis, providerUsed: provider.name };
     } catch (err: any) {
       const isAbort = err?.name === 'AbortError';
-      const reason = isAbort ? 'timeout (8s)' : err?.message || 'unknown error';
+      const reason = isAbort ? 'timeout (30s)' : err?.message || 'unknown error';
       // Silent warning — never surfaces to the user
       console.warn(`[AI Failover] ${provider.name} failed (${reason}), trying next provider...`);
+      if (provider.name === 'Gemini') geminiError = err;
       lastError = err;
     }
   }
@@ -361,6 +367,39 @@ async function runWaterfallAnalysis(body: AnalysisRequest): Promise<{ analysis: 
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Security check 1: confirm the caller is actually logged in ──────────
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll: () => cookieStore.getAll(),
+          setAll: () => {},
+        },
+      }
+    );
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'You must be signed in to request an analysis.' }, { status: 401 });
+    }
+
+    // ── Security check 2: rate limit — max 5 requests per 10 minutes per person ──
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from('sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('mentor_id', user.id)
+      .gte('created_at', tenMinutesAgo);
+
+    if ((count || 0) >= 5) {
+      return NextResponse.json(
+        { error: 'You have reached the limit of 5 analyses per 10 minutes. Please wait a moment before trying again.' },
+        { status: 429 }
+      );
+    }
+
     const body: AnalysisRequest = await req.json();
 
     const { analysis, providerUsed } = await runWaterfallAnalysis(body);
@@ -372,8 +411,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('[analyze-session] All providers failed:', error?.message);
+    const isRateLimit = error?.message?.includes('429') || error?.message?.includes('rate');
     return NextResponse.json(
-      { error: 'AI analysis is temporarily unavailable. Please try again in a moment.' },
+      {
+        error: isRateLimit
+          ? 'Our AI service has reached its usage limit for now. Please try again in a few minutes.'
+          : 'AI analysis is temporarily unavailable. Please try again in a moment.',
+      },
       { status: 503 }
     );
   }

@@ -1,8 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { useFontSize } from '@/contexts/FontSizeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 
 type FontSize = 'small' | 'medium' | 'large';
 
@@ -34,7 +37,50 @@ const previewSizes: Record<FontSize, string> = {
 };
 
 export default function SettingsContent() {
-  const { fontSize, setFontSize } = useFontSize();
+  const { fontSize, setFontSize, theme, setTheme } = useFontSize();
+  const { profile, refreshProfile } = useAuth();
+  const supabase = createClient();
+
+  const [fullName, setFullName] = useState('');
+  const [codename, setCodename] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profile) {
+      setFullName((profile as any).full_name || '');
+      setCodename((profile as any).codename || '');
+    }
+  }, [profile]);
+
+  const handleSaveProfile = async () => {
+    setProfileError(null);
+    if (!fullName.trim()) {
+      setProfileError('Full name cannot be empty.');
+      return;
+    }
+    if (!codename.trim()) {
+      setProfileError('Codename cannot be empty.');
+      return;
+    }
+    if (!profile?.id) return;
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ full_name: fullName.trim(), codename: codename.trim() })
+        .eq('id', profile.id);
+      if (error) {
+        setProfileError(error.message || 'Failed to save profile.');
+      } else {
+        toast.success('Profile updated!');
+        await refreshProfile();
+      }
+    } catch (err: any) {
+      setProfileError(err?.message || 'Failed to save profile.');
+    }
+    setSavingProfile(false);
+  };
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
@@ -51,6 +97,55 @@ export default function SettingsContent() {
         </p>
       </div>
 
+      {/* My Profile Section */}
+      <div className="card-elevated p-6 mb-5">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-9 h-9 rounded-xl bg-accent/20 flex items-center justify-center flex-shrink-0">
+            <Icon name="UserCircleIcon" size={18} className="text-accent-foreground" />
+          </div>
+          <div>
+            <h2 className="font-700 text-foreground text-base">My Profile</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Update your name and codename — these show up everywhere across the app, including on
+              directory and roster sheets.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Full Name</label>
+            <input
+              className="input-mystic"
+              placeholder="Your full name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-600 text-foreground mb-1.5">Codename</label>
+            <input
+              className="input-mystic"
+              placeholder="A fun codename — a character, a favorite dish, anything!"
+              value={codename}
+              onChange={(e) => setCodename(e.target.value)}
+            />
+          </div>
+          {profileError && <p className="text-xs text-negative">{profileError}</p>}
+          <button
+            className="btn-primary self-start"
+            onClick={handleSaveProfile}
+            disabled={savingProfile}
+          >
+            {savingProfile ? (
+              <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Icon name="CheckIcon" size={16} /> Save Profile</>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* Font Size Section */}
       <div className="card-elevated p-6 mb-5">
         <div className="flex items-start gap-3 mb-5">
@@ -65,7 +160,6 @@ export default function SettingsContent() {
             </p>
           </div>
         </div>
-
         <div className="grid grid-cols-3 gap-3">
           {FONT_SIZE_OPTIONS.map((option) => {
             const isActive = fontSize === option.value;
@@ -107,7 +201,6 @@ export default function SettingsContent() {
             );
           })}
         </div>
-
         {/* Live preview */}
         <div className="mt-5 p-4 rounded-xl bg-secondary/60 border border-border">
           <p className="section-label mb-2">Live Preview</p>
@@ -124,26 +217,59 @@ export default function SettingsContent() {
         </div>
       </div>
 
-      {/* App Info */}
-      <div className="card-elevated p-5">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Icon name="InformationCircleIcon" size={18} className="text-primary" />
+      {/* Theme Section */}
+      <div className="card-elevated p-6 mb-5">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-9 h-9 rounded-xl bg-accent/20 flex items-center justify-center flex-shrink-0">
+            <Icon name="SwatchIcon" size={18} className="text-accent-foreground" />
           </div>
-          <h2 className="font-700 text-foreground text-base">About Luminar&apos;s Guide</h2>
+          <div>
+            <h2 className="font-700 text-foreground text-base">App Theme</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Choose the color theme for the whole app. Changes apply instantly and are saved for your next visit.
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col gap-2.5">
-          {[
-            { label: 'Version', value: '2.0.0' },
-            { label: 'AI Engine', value: 'Gemini Flash / Pro (Free Tier)' },
-            { label: 'Core Pillars', value: '5 Educational Pillars' },
-            { label: 'Observation Fields', value: '5 Structured Areas per Session' },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-              <span className="text-sm text-muted-foreground font-500">{item.label}</span>
-              <span className="text-sm font-600 text-foreground">{item.value}</span>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {([
+            { value: 'mystic' as const, label: 'Mystic', description: 'Purple & gold — original theme', swatch: ['#7C6FCD', '#F0C060'] },
+            { value: 'teal-gold' as const, label: 'Teal & Gold', description: 'Fresh teal & warm gold', swatch: ['#14877A', '#D9A441'] },
+            { value: 'dark-teal' as const, label: 'Dark Teal', description: 'Dark mode with teal accents', swatch: ['#2FBFA8', '#0A1F1D'] },
+          ]).map((option) => {
+            const isActive = theme === option.value;
+            return (
+              <button
+                key={option.value}
+                onClick={() => setTheme(option.value)}
+                className={`relative flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-150 text-left ${
+                  isActive
+                    ? 'border-primary bg-primary/5 shadow-sm'
+                    : 'border-border bg-card hover:border-primary/40 hover:bg-secondary/50'
+                }`}
+                aria-pressed={isActive}
+                aria-label={`Set theme to ${option.label}`}
+              >
+                {isActive && (
+                  <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    <Icon name="CheckIcon" size={11} className="text-white" />
+                  </div>
+                )}
+                <div className="flex -space-x-2">
+                  <div className="w-7 h-7 rounded-full border-2 border-card" style={{ backgroundColor: option.swatch[0] }} />
+                  <div className="w-7 h-7 rounded-full border-2 border-card" style={{ backgroundColor: option.swatch[1] }} />
+                </div>
+                <div className="text-center">
+                  <p className={`font-700 text-sm ${isActive ? 'text-primary' : 'text-foreground'}`}>
+                    {option.label}
+                    {option.value === 'mystic' && (
+                      <span className="ml-1.5 text-xs font-500 text-muted-foreground">(Default)</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{option.description}</p>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

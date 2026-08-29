@@ -7,10 +7,27 @@ function getServerSupabase() {
   return createClient(url, key);
 }
 
+async function requireUser(req: NextRequest, supabase: ReturnType<typeof getServerSupabase>) {
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.replace('Bearer ', '').trim();
+  if (!token) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  return user;
+}
+
 // GET /api/sessions — fetch sessions for a student or mentor
-// Accepts: ?student_id=<uuid>  OR  ?mentor_id=<uuid>
+// SECURITY: caller must be logged in. mentor_id must be the caller's own id;
+// if student_id is used instead, we verify that student actually belongs to
+// the caller before returning anything.
 export async function GET(req: NextRequest) {
   try {
+    const supabase = getServerSupabase();
+    const user = await requireUser(req, supabase);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const studentId = searchParams.get('student_id');
     const mentorId = searchParams.get('mentor_id');
@@ -20,7 +37,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'student_id or mentor_id is required' }, { status: 400 });
     }
 
-    const supabase = getServerSupabase();
+    if (mentorId && mentorId !== user.id) {
+      return NextResponse.json({ error: 'You may only view your own sessions.' }, { status: 403 });
+    }
+
+    if (studentId) {
+      const { data: studentRow } = await supabase
+        .from('students')
+        .select('mentor_id')
+        .eq('id', studentId)
+        .maybeSingle();
+      if (!studentRow || studentRow.mentor_id !== user.id) {
+        return NextResponse.json({ error: 'You may only view sessions for your own students.' }, { status: 403 });
+      }
+    }
 
     let query = supabase
       .from('sessions')
@@ -49,8 +79,15 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/sessions — create a new session record (after AI analysis)
+// SECURITY: mentor_id must match the logged-in caller.
 export async function POST(req: NextRequest) {
   try {
+    const supabase = getServerSupabase();
+    const user = await requireUser(req, supabase);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       mentor_id,
@@ -73,8 +110,9 @@ export async function POST(req: NextRequest) {
     if (!mentor_id || !student_id || !topic) {
       return NextResponse.json({ error: 'mentor_id, student_id, and topic are required' }, { status: 400 });
     }
-
-    const supabase = getServerSupabase();
+    if (mentor_id !== user.id) {
+      return NextResponse.json({ error: 'You may only create sessions under your own account.' }, { status: 403 });
+    }
 
     const observations = [obs_offline_class, obs_online_task, obs_group_task, obs_mentor_call, obs_comprehensive]
       .filter(Boolean)

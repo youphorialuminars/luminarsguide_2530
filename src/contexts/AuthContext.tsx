@@ -14,6 +14,7 @@ interface UserProfile {
   counselor_id: string | null;
   counselor_invite_code: string | null;
   school_id: string | null;
+  approval_status: string;
 }
 
 interface AuthContextType {
@@ -53,6 +54,11 @@ function clearRoleCookie() {
     document.cookie = 'luminar_role=; path=/; max-age=0; SameSite=None; Secure';
   }
 }
+
+// Roles that get authority over other people's data must be approved before
+// they can use the app — see the "pending approval" check at the bottom of
+// AuthProvider below.
+const GATED_ROLES = ['mentor', 'counselor', 'school', 'student', 'parent', 'admin'];
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
@@ -215,6 +221,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     getUserProfile,
     refreshProfile,
   };
+
+  const isPending =
+    !!profile &&
+    (profile as any).approval_status === 'pending' &&
+    GATED_ROLES.includes(profile.role);
+
+  if (!loading && !profileLoading && isPending) {
+    return (
+      <AuthContext.Provider value={value}>
+        <div className="min-h-screen flex items-center justify-center bg-background px-4">
+          <div className="max-w-md w-full text-center card-mystic p-8">
+            <h1 className="text-xl font-800 text-foreground mb-3">Your account is pending approval</h1>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+              Thanks for signing up, {profile?.full_name || 'there'}. An administrator needs to review and approve
+              your account before you can access the dashboard. You'll be able to log in normally once that's done —
+              no need to sign up again.
+            </p>
+            <button className="btn-primary" onClick={() => signOut()}>
+              Log Out
+            </button>
+          </div>
+        </div>
+      </AuthContext.Provider>
+    );
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

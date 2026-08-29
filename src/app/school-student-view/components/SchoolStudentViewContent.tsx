@@ -86,7 +86,7 @@ export default function SchoolStudentViewContent() {
 
       const [taskResult, attResult, sessResult] = await Promise.all([
         supabase.from('student_tasks').select('id, task_description, priority, deadline, status').eq('student_id', studentId).order('created_at', { ascending: false }),
-        supabase.from('attendance').select('id, date, status, topic').eq('student_id', studentId).order('date', { ascending: false }).limit(20),
+        supabase.from('attendance').select('id, attendance_date, status').eq('student_id', studentId).order('attendance_date', { ascending: false }).limit(20),
         supabase.from('sessions').select('id, topic, score, created_at').eq('student_id', studentId).order('created_at', { ascending: false }).limit(10),
       ]);
 
@@ -216,7 +216,7 @@ export default function SchoolStudentViewContent() {
             <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto">
               {attendance.map((a) => (
                 <div key={a.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-secondary/30">
-                  <span className="text-sm text-foreground">{a.date ? new Date(a.date).toLocaleDateString() : '—'}</span>
+                  <span className="text-sm text-foreground">{a.attendance_date ? new Date(a.attendance_date).toLocaleDateString() : '—'}</span>
                   <span className={`text-xs font-600 px-2.5 py-0.5 rounded-full ${a.status === 'present' ? 'bg-positive/10 text-positive' : 'bg-negative/10 text-negative'}`}>
                     {a.status === 'present' ? 'Present' : 'Absent'}
                   </span>

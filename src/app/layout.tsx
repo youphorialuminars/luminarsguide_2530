@@ -30,16 +30,33 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={plusJakartaSans.variable}>
+    <html lang="en" className={plusJakartaSans.variable} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('luminar_theme');
+                  var map = { 'teal-gold': 'theme-teal-gold', 'dark-teal': 'theme-dark-teal' };
+                  if (theme && map[theme]) {
+                    document.documentElement.classList.add(map[theme]);
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+
+        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fluminarsgu1587back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20" />
+        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
       <body className={plusJakartaSans.className}>
         <FontSizeProvider>
           <AuthProvider>
             {children}
           </AuthProvider>
         </FontSizeProvider>
-
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fluminarsgu1587back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></body>
+</body>
     </html>
   );
 }

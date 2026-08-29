@@ -1,25 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Server-side Supabase client using service role for API routes
-function getServerSupabase() {
+function getServerSupabase(token?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key);
+  return createClient(url, key, token
+    ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+    : undefined);
+}
+
+async function requireUser(req: NextRequest) {
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.replace('Bearer ', '').trim();
+  if (!token) return null;
+  const supabase = getServerSupabase(token);
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  return { user, supabase };
 }
 
 // GET /api/students — fetch students for the authenticated mentor
-// Accepts: ?mentor_id=<uuid>  (passed from client after auth.getUser())
+// SECURITY: mentor_id must match the logged-in caller — a mentor can only see
+// their own roster this way, never anyone else's.
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { user, supabase } = auth;
+
     const { searchParams } = new URL(req.url);
     const mentorId = searchParams.get('mentor_id');
 
     if (!mentorId) {
       return NextResponse.json({ error: 'mentor_id is required' }, { status: 400 });
     }
-
-    const supabase = getServerSupabase();
+    if (mentorId !== user.id) {
+      return NextResponse.json({ error: 'You may only view your own students.' }, { status: 403 });
+    }
 
     const { data, error } = await supabase
       .from('students')
@@ -40,8 +59,15 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/students — create a new student record
+// SECURITY: mentor_id must match the logged-in caller.
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { user, supabase } = auth;
+
     const body = await req.json();
     const {
       mentor_id,
@@ -58,12 +84,11 @@ export async function POST(req: NextRequest) {
     if (!mentor_id || !name) {
       return NextResponse.json({ error: 'mentor_id and name are required' }, { status: 400 });
     }
+    if (mentor_id !== user.id) {
+      return NextResponse.json({ error: 'You may only add students to your own roster.' }, { status: 403 });
+    }
 
-    const supabase = getServerSupabase();
-
-    // Generate a unique student code
     const student_code = `STU-${Date.now().toString(36).toUpperCase()}`;
-    // Generate a parent link code
     const parent_link_code = `PLK-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
     const { data, error } = await supabase

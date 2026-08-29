@@ -48,16 +48,16 @@ interface InviteCode {
 }
 
 const PILLARS = [
-  'Teamwork and Leadership',
-  'Digital Hygiene and Privacy Literacy',
-  'Emotional Resilience and Mental Well-being',
-  'Personal Safety, Consent, and Boundaries',
-  'Civic Sense and Social Responsibility',
+  'Relational Intelligence and Community Stewardship',
+  'Digital Wisdom and Citizenship',
+  'Psychological Fortitude and Mindfulness',
+  'Bodily Integrity and Social Conscientiousness',
+  'Authentic Identity and Purposeful Worth',
 ];
 
 const PILLAR_COLORS = ['#c4b5fd', '#93c5fd', '#86efac', '#fcd34d', '#f9a8d4'];
 
-type DashboardTab = 'overview' | 'students' | 'mentors' | 'invites' | 'calendar';
+type DashboardTab = 'overview' | 'students' | 'mentors' | 'invites' | 'calendar' | 'programs' | 'suggestions';
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub }: { icon: string; label: string; value: string | number; sub?: string }) {
@@ -80,10 +80,15 @@ export default function SchoolDashboardContent() {
   const router = useRouter();
   const supabase = createClient();
 
-  
-  const searchParams = useSearchParams();const [activeTab, setActiveTab] = useState<DashboardTab>(
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<DashboardTab>(
     (searchParams.get('tab') as DashboardTab) || 'overview'
   );
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t as DashboardTab);
+  }, [searchParams]);
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [schoolName, setSchoolName] = useState<string>('School');
   const [mentors, setMentors] = useState<MentorProfile[]>([]);
@@ -93,12 +98,27 @@ export default function SchoolDashboardContent() {
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
-  const searchParams = useSearchParams();
   const initialQ = searchParams.get('q') || '';
   const [mentorSearch, setMentorSearch] = useState(initialQ);
   const [studentSearch, setStudentSearch] = useState(initialQ);
   const [globalSearch, setGlobalSearch] = useState('');
   const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
+  const [programs, setPrograms] = useState<{ id: string; posted_by: string; posted_by_role: string; title: string; description: string; program_date: string | null; external_link: string | null; file_url: string | null; file_name: string | null; created_at: string }[]>([]);
+  const [posterNames, setPosterNames] = useState<Record<string, string>>({});
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [programForm, setProgramForm] = useState({ title: '', description: '', program_date: '', external_link: '' });
+  const [programFile, setProgramFile] = useState<File | null>(null);
+  const [postingProgram, setPostingProgram] = useState(false);
+  const [suggestionRecipientRole, setSuggestionRecipientRole] = useState('');
+  const [suggestionRecipientOptions, setSuggestionRecipientOptions] = useState<{ id: string; name: string }[]>([]);
+  const [suggestionRecipientId, setSuggestionRecipientId] = useState('');
+  const [suggestionType, setSuggestionType] = useState<'suggestion' | 'feedback' | 'query'>('suggestion');
+  const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [revealIdentity, setRevealIdentity] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [receivedSuggestions, setReceivedSuggestions] = useState<any[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [senderNames, setSenderNames] = useState<Record<string, string>>({});
 
   const loadData = useCallback(async (uid: string) => {
     setIsLoading(true);
@@ -195,8 +215,13 @@ export default function SchoolDashboardContent() {
         .from('user_profiles')
         .select('full_name, role')
         .eq('id', user.id)
-        .single()
-        .then(({ data: profile }) => {
+        .maybeSingle()
+        .then(async ({ data: profile }) => {
+          if (!profile) {
+            await new Promise((r) => setTimeout(r, 500));
+            const retry = await supabase.from('user_profiles').select('full_name, role').eq('id', user.id).maybeSingle();
+            profile = retry.data;
+          }
           if (profile?.role !== 'school') { router.push('/sign-up-login'); return; }
           setSchoolName(profile?.full_name || 'School');
           loadData(user.id);
@@ -229,6 +254,178 @@ export default function SchoolDashboardContent() {
       toast.error(err?.message || 'Failed to get/generate code');
     }
     setIsGeneratingCode(false);
+  };
+
+  const loadPrograms = useCallback(async () => {
+    setProgramsLoading(true);
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setPrograms(data || []);
+
+    if (data && data.length > 0) {
+      const posterIds = Array.from(new Set(data.map((p) => p.posted_by)));
+      const { data: posters } = await supabase
+        .from('user_profiles')
+        .select('id, full_name')
+        .in('id', posterIds);
+      const names: Record<string, string> = {};
+      (posters || []).forEach((p) => { names[p.id] = p.full_name || 'Unknown'; });
+      setPosterNames(names);
+    }
+    setProgramsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'programs') loadPrograms();
+  }, [activeTab, loadPrograms]);
+
+  const handlePostProgram = async () => {
+    if (!programForm.title.trim() || !programForm.description.trim()) {
+      toast.error('Please fill in both title and description.');
+      return;
+    }
+    if (!schoolId) return;
+    setPostingProgram(true);
+
+    let fileUrl: string | null = null;
+    let fileName: string | null = null;
+
+    if (programFile) {
+      if (programFile.size > 2 * 1024 * 1024) {
+        toast.error('File too large. Max size is 2MB.');
+        setPostingProgram(false);
+        return;
+      }
+      const filePath = `${schoolId}/${Date.now()}_${programFile.name}`;
+      const { error: uploadError } = await supabase.storage.from('program-files').upload(filePath, programFile);
+      if (uploadError) {
+        toast.error('File upload failed: ' + uploadError.message);
+        setPostingProgram(false);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from('program-files').getPublicUrl(filePath);
+      fileUrl = urlData.publicUrl;
+      fileName = programFile.name;
+    }
+
+    const { error } = await supabase.from('programs').insert({
+      posted_by: schoolId,
+      posted_by_role: 'school',
+      title: programForm.title.trim(),
+      description: programForm.description.trim(),
+      program_date: programForm.program_date || null,
+      external_link: programForm.external_link.trim() || null,
+      file_url: fileUrl,
+      file_name: fileName,
+    });
+
+    if (error) {
+      toast.error('Failed to post program: ' + error.message);
+    } else {
+      toast.success('Program posted — visible to mentors, students, parents, and counselors!');
+      setProgramForm({ title: '', description: '', program_date: '', external_link: '' });
+      setProgramFile(null);
+      loadPrograms();
+    }
+    setPostingProgram(false);
+  };
+
+  const handleDeleteProgram = async (id: string) => {
+    const { error } = await supabase.from('programs').delete().eq('id', id);
+    if (error) { toast.error('Failed to delete program.'); }
+    else { toast.success('Program removed.'); loadPrograms(); }
+  };
+
+  const SCHOOL_CAN_SEND_TO = ['parent', 'admin'];
+
+  const loadSuggestionRecipients = useCallback(async (role: string) => {
+    if (!role || !schoolId) { setSuggestionRecipientOptions([]); return; }
+
+    let options: { id: string; name: string }[] = [];
+
+    if (role === 'parent') {
+      const { data: myStudents } = await supabase.from('students').select('id, student_user_id').in('mentor_id',
+        (await supabase.from('user_profiles').select('id').eq('school_id', schoolId).eq('role', 'mentor')).data?.map((m: any) => m.id) || []
+      );
+      const studentIds = (myStudents || []).map((s: any) => s.id);
+      if (studentIds.length > 0) {
+        const { data: links } = await supabase.from('parent_student_links').select('parent_id').in('student_id', studentIds);
+        const parentIds = Array.from(new Set((links || []).map((l: any) => l.parent_id)));
+        if (parentIds.length > 0) {
+          const { data: people } = await supabase.from('user_profiles').select('id, full_name').in('id', parentIds);
+          options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Parent' }));
+        }
+      }
+    } else if (role === 'admin') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('role', 'admin');
+      options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Admin' }));
+    }
+
+    setSuggestionRecipientOptions(options);
+    setSuggestionRecipientId('');
+  }, [supabase, schoolId]);
+
+  useEffect(() => {
+    loadSuggestionRecipients(suggestionRecipientRole);
+  }, [suggestionRecipientRole, loadSuggestionRecipients]);
+
+  const handleSendSuggestion = async () => {
+    if (!suggestionRecipientId || !suggestionMessage.trim() || !schoolId) {
+      toast.error('Please choose a recipient and write a message.');
+      return;
+    }
+    setSendingSuggestion(true);
+
+    const { error } = await supabase.from('suggestions').insert({
+      sender_id: schoolId,
+      sender_role: 'school',
+      recipient_id: suggestionRecipientId,
+      recipient_role: suggestionRecipientRole,
+      type: suggestionType,
+      message: suggestionMessage.trim(),
+      is_anonymous: !revealIdentity,
+    });
+
+    if (error) {
+      toast.error('Failed to send: ' + error.message);
+    } else {
+      toast.success('Sent!');
+      setSuggestionMessage('');
+      setSuggestionRecipientRole('');
+      setSuggestionRecipientId('');
+      setRevealIdentity(false);
+    }
+    setSendingSuggestion(false);
+  };
+
+  const loadReceivedSuggestions = useCallback(async () => {
+    if (!schoolId) return;
+    setSuggestionsLoading(true);
+
+    const { data } = await supabase
+      .rpc('get_my_suggestions');
+
+    setReceivedSuggestions(data || []);
+
+    const revealedSenderIds = (data || []).filter((s: any) => !s.is_anonymous).map((s: any) => s.sender_id);
+    if (revealedSenderIds.length > 0) {
+      const { data: senders } = await supabase.from('user_profiles').select('id, full_name').in('id', revealedSenderIds);
+      const names: Record<string, string> = {};
+      (senders || []).forEach((p: any) => { names[p.id] = p.full_name || 'Unknown'; });
+      setSenderNames(names);
+    }
+    setSuggestionsLoading(false);
+  }, [supabase, schoolId]);
+
+  useEffect(() => {
+    if (activeTab === 'suggestions') loadReceivedSuggestions();
+  }, [activeTab, loadReceivedSuggestions]);
+
+  const handleMarkResolved = async (id: string) => {
+    const { error } = await supabase.from('suggestions').update({ status: 'resolved' }).eq('id', id);
+    if (!error) { loadReceivedSuggestions(); }
   };
 
   // ─── Analytics Computations ───────────────────────────────────────────────
@@ -289,6 +486,8 @@ export default function SchoolDashboardContent() {
     { id: 'mentors', label: 'Mentor Directory', icon: 'AcademicCapIcon' },
     { id: 'invites', label: 'Invite Codes', icon: 'KeyIcon' },
     { id: 'calendar', label: 'School Calendar', icon: 'CalendarDaysIcon' },
+    { id: 'programs', label: 'Programs & Events', icon: 'MegaphoneIcon' },
+    { id: 'suggestions', label: 'Suggestion Portal', icon: 'ChatBubbleLeftEllipsisIcon' },
   ];
 
   if (isLoading) {
@@ -319,28 +518,6 @@ export default function SchoolDashboardContent() {
             School Dashboard · {mentors.length} Mentors · {students.length} Students
           </p>
         </div>
-        {/* Global Search Bar */}
-        <div className="relative">
-          <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <input
-            className="input-mystic pl-9 w-56"
-            placeholder="Search mentors & students…"
-            value={globalSearch}
-            onChange={(e) => {
-              setGlobalSearch(e.target.value);
-              setMentorSearch(e.target.value);
-              setStudentSearch(e.target.value);
-            }}
-          />
-          {globalSearch && (
-            <button
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => { setGlobalSearch(''); setMentorSearch(''); setStudentSearch(''); }}
-            >
-              <Icon name="XMarkIcon" size={14} />
-            </button>
-          )}
-        </div>
       </div>
 
       {/* Stats Strip */}
@@ -359,52 +536,10 @@ export default function SchoolDashboardContent() {
         <StatCard icon="BookOpenIcon" label="Total Sessions" value={sessions.length} />
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-6 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-600 whitespace-nowrap transition-all ${
-              activeTab === tab.id
-                ? 'bg-card text-foreground shadow-sm border border-border'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon name={tab.icon as any} size={15} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {/* ── Overview Tab ── */}
       {activeTab === 'overview' && (
         <div className="flex flex-col gap-8 animate-fade-in">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Attendance Bar Chart */}
-            <div className="bg-card border border-border rounded-2xl p-6">
-              <h3 className="text-base font-700 text-foreground mb-1">Average Student Attendance</h3>
-              <p className="text-xs text-muted-foreground mb-4">Attendance rate per mentor group</p>
-              {avgAttendanceData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={avgAttendanceData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} unit="%" />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
-                      formatter={(v: number) => [`${v}%`, 'Attendance']}
-                    />
-                    <Bar dataKey="rate" fill="#c4b5fd" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">
-                  No attendance data yet
-                </div>
-              )}
-            </div>
-
+          <div className="grid grid-cols-1 gap-6">
             {/* Task Completion Bar Chart */}
             <div className="bg-card border border-border rounded-2xl p-6">
               <h3 className="text-base font-700 text-foreground mb-1">Average Task Completion Rate</h3>
@@ -567,7 +702,7 @@ export default function SchoolDashboardContent() {
 
           {filteredMentors.length === 0 ? (
             <div className="bg-card border border-border rounded-2xl p-12 text-center">
-              <Icon name="AcademicCapIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
+            <Icon name="AcademicCapIcon" size={40} className="text-muted-foreground mx-auto mb-3" />
               <p className="text-muted-foreground font-500">No mentors linked yet</p>
               <p className="text-xs text-muted-foreground mt-1">Generate a school invite code and share it with mentors to link them</p>
             </div>
@@ -690,6 +825,217 @@ export default function SchoolDashboardContent() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Programs & Events Tab ── */}
+      {activeTab === 'programs' && (
+        <div className="animate-fade-in flex flex-col gap-6">
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="MegaphoneIcon" size={18} className="text-primary" />
+              <h3 className="text-base font-700 text-foreground">Post a Program or Event</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Visible to mentors, students, parents, and counselors. A link and a file are both optional.
+            </p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Title <span className="text-negative">*</span></label>
+                <input
+                  className="input-mystic"
+                  placeholder="e.g. Annual Science Fair"
+                  value={programForm.title}
+                  onChange={(e) => setProgramForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Description <span className="text-negative">*</span></label>
+                <textarea
+                  className="input-mystic min-h-[80px] resize-none"
+                  placeholder="Describe the program or event..."
+                  value={programForm.description}
+                  onChange={(e) => setProgramForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-600 text-foreground mb-1.5">Date (optional)</label>
+                  <input
+                    type="date"
+                    className="input-mystic"
+                    value={programForm.program_date}
+                    onChange={(e) => setProgramForm((f) => ({ ...f, program_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-600 text-foreground mb-1.5">Link (optional — e.g. for an online session)</label>
+                  <input
+                    className="input-mystic"
+                    placeholder="https://meet.jit.si/..."
+                    value={programForm.external_link}
+                    onChange={(e) => setProgramForm((f) => ({ ...f, external_link: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Attach a brochure/poster (optional)</label>
+                <div className="flex items-center gap-2">
+                  <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
+                    <Icon name="PaperClipIcon" size={12} /> {programFile ? programFile.name : 'Choose File'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => setProgramFile(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  {programFile && (
+                    <button className="btn-ghost text-xs py-1.5 px-2" onClick={() => setProgramFile(null)}>Clear</button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">PDF, JPG, or PNG · max 2MB</p>
+              </div>
+              <button className="btn-primary self-start" onClick={handlePostProgram} disabled={postingProgram}>
+                {postingProgram ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Posting...</> : <><Icon name="MegaphoneIcon" size={15} /> Post Program</>}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="ClipboardDocumentListIcon" size={18} className="text-primary" />
+              <h3 className="text-base font-700 text-foreground">All Programs & Events</h3>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {programs.length} total
+              </span>
+            </div>
+            {programsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : programs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No programs posted yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {programs.map((p) => (
+                  <div key={p.id} className="flex items-start gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-sm font-700 text-foreground">{p.title}</span>
+                        <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${p.posted_by_role === 'school' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                          {p.posted_by_role === 'school' ? 'School' : 'Mentor'}: {posterNames[p.posted_by] || '...'}
+                        </span>
+                        {p.program_date && (
+                          <span className="text-xs text-muted-foreground">{new Date(p.program_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground/80 leading-relaxed">{p.description}</p>
+                      <div className="flex items-center gap-3 mt-2">
+                        {p.external_link && (
+                          <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                            <Icon name="LinkIcon" size={12} /> Open Link
+                          </a>
+                        )}
+                        {p.file_url && (
+                          <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                            <Icon name="DocumentIcon" size={12} /> {p.file_name}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    {p.posted_by === schoolId && (
+                      <button
+                        onClick={() => handleDeleteProgram(p.id)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
+                      >
+                        <Icon name="TrashIcon" size={15} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SUGGESTION PORTAL TAB ─────────────────────────────────────────── */}
+      {activeTab === 'suggestions' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="PaperAirplaneIcon" size={18} className="text-primary" />
+              Send a Suggestion, Feedback, or Query
+            </h2>
+            <div className="flex flex-col gap-3">
+              <select className="input-mystic" value={suggestionRecipientRole} onChange={(e) => setSuggestionRecipientRole(e.target.value)}>
+                <option value="">Send to...</option>
+                {SCHOOL_CAN_SEND_TO.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              {suggestionRecipientRole && (
+                <select className="input-mystic" value={suggestionRecipientId} onChange={(e) => setSuggestionRecipientId(e.target.value)}>
+                  <option value="">Choose a specific person...</option>
+                  {suggestionRecipientOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              )}
+              <select className="input-mystic" value={suggestionType} onChange={(e) => setSuggestionType(e.target.value as any)}>
+                <option value="suggestion">Suggestion</option>
+                <option value="feedback">Feedback</option>
+                <option value="query">Query</option>
+              </select>
+              <textarea
+                className="input-mystic min-h-[80px] resize-none"
+                placeholder="Write your message..."
+                value={suggestionMessage}
+                onChange={(e) => setSuggestionMessage(e.target.value)}
+              />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={revealIdentity} onChange={(e) => setRevealIdentity(e.target.checked)} className="w-4 h-4 rounded border-border" />
+                <span className="text-sm text-foreground">Reveal my identity to the recipient (otherwise sent anonymously)</span>
+              </label>
+              <button className="btn-primary self-start" onClick={handleSendSuggestion} disabled={sendingSuggestion}>
+                {sendingSuggestion ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="InboxIcon" size={18} className="text-primary" />
+              Received
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {receivedSuggestions.length} total
+              </span>
+            </h2>
+            {suggestionsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : receivedSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Nothing received yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {receivedSuggestions.map((s) => (
+                  <div key={s.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-xs font-600 text-primary">
+                        {s.is_anonymous ? `Anonymous ${s.sender_role}` : (senderNames[s.sender_id] || s.sender_role)}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-card border border-border text-muted-foreground">{s.type}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${s.status === 'resolved' ? 'bg-positive/10 text-positive border-positive/20' : 'bg-muted text-muted-foreground border-border'}`}>{s.status}</span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{s.message}</p>
+                    {s.status !== 'resolved' && (
+                      <button className="btn-ghost text-xs py-1 px-3 mt-2" onClick={() => handleMarkResolved(s.id)}>
+                        Mark as Resolved
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

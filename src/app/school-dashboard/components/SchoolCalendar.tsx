@@ -3,17 +3,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { toast } from 'sonner';
 
 interface SchoolEvent {
   id: string;
-  title: string;
-  event_date: string;
+  event_title: string;
+  start_time: string;
   event_type: 'performance_schedule' | 'holiday';
 }
 
-interface SchoolCalendarProps {
-  schoolId: string;
+interface SchoolEventsCalendarProps {
+  /** Optional: filter events by a specific school_id. If omitted, loads all visible events. */
+  schoolId?: string | null;
 }
 
 const MONTH_NAMES = [
@@ -21,26 +21,14 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
+export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarProps) {
   const supabase = createClient();
   const [events, setEvents] = useState<SchoolEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [today, setToday] = useState<{ year: number; month: number; day: number } | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
-
-  const [form, setForm] = useState<{
-    title: string;
-    event_date: string;
-    event_type: 'performance_schedule' | 'holiday';
-  }>({
-    title: '',
-    event_date: '',
-    event_type: 'holiday',
   });
 
   useEffect(() => {
@@ -50,45 +38,19 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    let query = supabase
       .from('school_events')
-      .select('id, title, event_date, event_type')
-      .eq('school_id', schoolId)
-      .order('event_date');
+      .select('id, event_title, start_time, event_type')
+      .order('start_time');
+    if (schoolId) {
+      query = query.eq('school_id', schoolId);
+    }
+    const { data } = await query;
     setEvents(data || []);
     setLoading(false);
   }, [supabase, schoolId]);
 
-  useEffect(() => {
-    if (schoolId) loadEvents();
-  }, [schoolId, loadEvents]);
-
-  const handleAddEvent = async () => {
-    if (!form.title.trim()) { toast.error('Please enter an event title.'); return; }
-    if (!form.event_date) { toast.error('Please select a date.'); return; }
-    setSubmitting(true);
-    const { error } = await supabase.from('school_events').insert({
-      school_id: schoolId,
-      title: form.title.trim(),
-      event_date: form.event_date,
-      event_type: form.event_type,
-    });
-    if (error) {
-      toast.error('Failed to add event.');
-    } else {
-      toast.success('Event added to calendar!');
-      setForm({ title: '', event_date: '', event_type: 'holiday' });
-      setShowForm(false);
-      loadEvents();
-    }
-    setSubmitting(false);
-  };
-
-  const handleDeleteEvent = async (id: string) => {
-    const { error } = await supabase.from('school_events').delete().eq('id', id);
-    if (error) { toast.error('Failed to delete event.'); }
-    else { toast.success('Event removed.'); loadEvents(); }
-  };
+  useEffect(() => { loadEvents(); }, [loadEvents]);
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -100,101 +62,55 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
   ];
 
   const eventsThisMonth = events.filter((e) => {
-    const d = new Date(e.event_date);
+    const d = new Date(e.start_time);
     return d.getFullYear() === year && d.getMonth() === month;
   });
 
   const eventsByDate = new Map<string, SchoolEvent[]>();
   eventsThisMonth.forEach((e) => {
-    const key = e.event_date;
+    const d = new Date(e.start_time);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (!eventsByDate.has(key)) eventsByDate.set(key, []);
     eventsByDate.get(key)!.push(e);
   });
 
+  // Upcoming events list (next 5)
+  const upcomingEvents = events
+    .filter((e) => {
+      if (!today) return true;
+      const d = new Date(e.start_time);
+      return d.getFullYear() > today.year ||
+        (d.getFullYear() === today.year && d.getMonth() > today.month) ||
+        (d.getFullYear() === today.year && d.getMonth() === today.month && d.getDate() >= today.day);
+    })
+    .slice(0, 5);
+
   return (
     <div className="flex flex-col gap-5">
-      {/* Calendar Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
-            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-          >
-            <Icon name="ChevronLeftIcon" size={15} />
-          </button>
-          <span className="text-base font-700 text-foreground min-w-[140px] text-center">
-            {MONTH_NAMES[month]} {year}
-          </span>
-          <button
-            onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
-            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-          >
-            <Icon name="ChevronRightIcon" size={15} />
-          </button>
-        </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="btn-primary text-sm py-2 px-4"
-        >
-          <Icon name="PlusIcon" size={15} />
-          Add Event
-        </button>
+      {/* Read-only badge */}
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/5 border border-info/20">
+        <Icon name="EyeIcon" size={14} className="text-info flex-shrink-0" />
+        <p className="text-xs text-muted-foreground">Read-only view of school events synced from the School Dashboard.</p>
       </div>
 
-      {/* Add Event Form */}
-      {showForm && (
-        <div className="p-4 rounded-xl bg-secondary/50 border border-border animate-fade-in">
-          <h4 className="text-sm font-700 text-foreground mb-3">New Calendar Event</h4>
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-600 text-foreground mb-1">Event Title <span className="text-negative">*</span></label>
-              <input
-                className="input-mystic text-sm"
-                placeholder="e.g. Annual Science Fair, Diwali Holiday..."
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-600 text-foreground mb-1">Date <span className="text-negative">*</span></label>
-                <input
-                  type="date"
-                  className="input-mystic text-sm"
-                  value={form.event_date}
-                  onChange={(e) => setForm((f) => ({ ...f, event_date: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-600 text-foreground mb-1">Event Type</label>
-                <select
-                  className="input-mystic text-sm"
-                  value={form.event_type}
-                  onChange={(e) => setForm((f) => ({ ...f, event_type: e.target.value as any }))}
-                >
-                  <option value="performance_schedule">Performance Schedule</option>
-                  <option value="holiday">Holiday</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleAddEvent}
-                disabled={submitting}
-                className="btn-primary text-sm py-2 px-4"
-              >
-                {submitting ? <><Icon name="ArrowPathIcon" size={13} className="animate-spin" /> Saving...</> : <><Icon name="CheckIcon" size={13} /> Save Event</>}
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="btn-secondary text-sm py-2 px-4"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Calendar Header */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
+          className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
+        >
+          <Icon name="ChevronLeftIcon" size={15} />
+        </button>
+        <span className="text-base font-700 text-foreground min-w-[140px] text-center">
+          {MONTH_NAMES[month]} {year}
+        </span>
+        <button
+          onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
+          className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
+        >
+          <Icon name="ChevronRightIcon" size={15} />
+        </button>
+      </div>
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -229,7 +145,7 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
             return (
               <div
                 key={dateStr}
-                className={`min-h-[52px] p-1 rounded-lg border text-xs transition-colors ${
+                className={`min-h-[48px] p-1 rounded-lg border text-xs transition-colors ${
                   hasPerformance ? 'bg-violet-50 border-violet-200'
                     : hasHoliday ? 'bg-amber-50 border-amber-200' : isToday ?'bg-primary/10 border-primary/30' :'border-border hover:bg-secondary/50'
                 }`}
@@ -238,20 +154,13 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
                 {dayEvents.map((e) => (
                   <div
                     key={e.id}
-                    className={`mt-0.5 px-1 py-0.5 rounded text-[10px] font-600 truncate cursor-pointer group flex items-center justify-between gap-0.5 ${
+                    className={`mt-0.5 px-1 py-0.5 rounded text-[10px] font-600 truncate ${
                       e.event_type === 'performance_schedule'
                         ? 'bg-violet-200 text-violet-800' :'bg-amber-200 text-amber-800'
                     }`}
-                    title={e.title}
+                    title={e.event_title}
                   >
-                    <span className="truncate">{e.title}</span>
-                    <button
-                      onClick={() => handleDeleteEvent(e.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                      title="Remove event"
-                    >
-                      <Icon name="XMarkIcon" size={9} />
-                    </button>
+                    {e.event_title}
                   </div>
                 ))}
               </div>
@@ -261,39 +170,50 @@ export default function SchoolCalendar({ schoolId }: SchoolCalendarProps) {
       )}
 
       {/* Upcoming Events List */}
-      {events.length > 0 && (
+      {upcomingEvents.length > 0 && (
         <div>
-          <h4 className="text-sm font-700 text-foreground mb-3">All Events</h4>
-          <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
-            {events.map((e) => (
-              <div
-                key={e.id}
-                className={`flex items-center gap-3 p-2.5 rounded-xl border ${
-                  e.event_type === 'performance_schedule'
-                    ? 'bg-violet-50 border-violet-200' :'bg-amber-50 border-amber-200'
-                }`}
-              >
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  e.event_type === 'performance_schedule' ? 'bg-violet-500' : 'bg-amber-500'
-                }`} />
+          <h4 className="text-sm font-700 text-foreground mb-3 flex items-center gap-2">
+            <Icon name="CalendarDaysIcon" size={15} className="text-primary" />
+            Upcoming Events
+          </h4>
+          <div className="flex flex-col gap-2">
+            {upcomingEvents.map((e) => (
+              <div key={e.id} className={`flex items-center gap-3 p-3 rounded-xl border ${
+                e.event_type === 'performance_schedule'
+                  ? 'bg-violet-50 border-violet-200' :'bg-amber-50 border-amber-200'
+              }`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  e.event_type === 'performance_schedule' ? 'bg-violet-200' : 'bg-amber-200'
+                }`}>
+                  <Icon
+                    name={e.event_type === 'performance_schedule' ? 'TrophyIcon' : 'SunIcon'}
+                    size={15}
+                    className={e.event_type === 'performance_schedule' ? 'text-violet-700' : 'text-amber-700'}
+                  />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-600 text-foreground truncate">{e.title}</p>
+                  <p className="text-sm font-600 text-foreground truncate">{e.event_title}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(e.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    {' · '}
-                    {e.event_type === 'performance_schedule' ? 'Performance Schedule' : 'Holiday'}
+                    {new Date(e.start_time).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDeleteEvent(e.id)}
-                  className="text-muted-foreground hover:text-negative transition-colors flex-shrink-0"
-                  title="Delete event"
-                >
-                  <Icon name="TrashIcon" size={14} />
-                </button>
+                <span className={`text-xs font-600 px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                  e.event_type === 'performance_schedule'
+                    ? 'bg-violet-100 text-violet-700 border-violet-200' :'bg-amber-100 text-amber-700 border-amber-200'
+                }`}>
+                  {e.event_type === 'performance_schedule' ? 'Performance' : 'Holiday'}
+                </span>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {!loading && events.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground">
+          <Icon name="CalendarDaysIcon" size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm font-600">No school events scheduled yet.</p>
+          <p className="text-xs mt-1">Events added by the school will appear here.</p>
         </div>
       )}
     </div>

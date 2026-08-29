@@ -21,28 +21,77 @@ interface SectionDef {
 
 const SECTIONS_BY_ROLE: Record<string, SectionDef[]> = {
   mentor: [
-    { label: 'Student Roster', href: '/student-dashboard' },
+    { label: 'Student Roster', href: '/student-dashboard?tab=roster' },
+    { label: 'Attendance', href: '/student-dashboard?tab=attendance' },
+    { label: 'Schedule Sessions', href: '/student-dashboard?tab=calendar' },
+    { label: 'Calendar', href: '/student-dashboard?tab=calendar' },
+    { label: 'Self-Reflection & Peer Ranking', href: '/student-dashboard?tab=reflections' },
+    { label: 'Reflections', href: '/student-dashboard?tab=reflections' },
+    { label: 'Manage Surveys', href: '/student-dashboard?tab=surveys' },
+    { label: 'Surveys', href: '/student-dashboard?tab=surveys' },
+    { label: 'Assign Tasks', href: '/student-dashboard?tab=tasks' },
+    { label: 'Tasks', href: '/student-dashboard?tab=tasks' },
+    { label: 'Parent Queries', href: '/student-dashboard?tab=parent-queries' },
+    { label: 'Parent Activities', href: '/student-dashboard?tab=parent-activities' },
+    { label: 'Programs & Events', href: '/student-dashboard?tab=programs' },
     { label: 'New Session', href: '/new-session' },
     { label: 'Analysis', href: '/student-analysis-history' },
     { label: 'Network & Links', href: '/network-links' },
     { label: 'Settings', href: '/settings' },
   ],
   student: [
-    { label: 'My Dashboard', href: '/student-parent-dashboard' },
+    { label: 'My Quest', href: '/student-parent-dashboard?tab=overview' },
+    { label: 'My Tasks', href: '/student-parent-dashboard?tab=tasks' },
+    { label: 'Tasks', href: '/student-parent-dashboard?tab=tasks' },
+    { label: 'Surveys', href: '/student-parent-dashboard?tab=surveys' },
+    { label: 'Calendar', href: '/student-parent-dashboard?tab=calendar' },
+    { label: 'Attendance', href: '/student-parent-dashboard?tab=calendar' },
+    { label: 'Report Card', href: '/student-parent-dashboard?tab=report' },
+    { label: 'Mentor Feedback', href: '/student-parent-dashboard?tab=feedback' },
+    { label: 'Feedback', href: '/student-parent-dashboard?tab=feedback' },
+    { label: 'Programs & Events', href: '/student-parent-dashboard?tab=programs' },
     { label: 'Network & Links', href: '/network-links' },
     { label: 'Settings', href: '/settings' },
   ],
   school: [
     { label: 'Institutional Overview', href: '/school-dashboard?tab=overview' },
+    { label: 'Overview', href: '/school-dashboard?tab=overview' },
     { label: 'Student Directory', href: '/school-dashboard?tab=students' },
     { label: 'Mentor Directory', href: '/school-dashboard?tab=mentors' },
     { label: 'Invite Codes', href: '/school-dashboard?tab=invites' },
     { label: 'School Calendar', href: '/school-dashboard?tab=calendar' },
+    { label: 'Calendar', href: '/school-dashboard?tab=calendar' },
+    { label: 'Programs & Events', href: '/school-dashboard?tab=programs' },
     { label: 'Network & Links', href: '/network-links' },
     { label: 'Settings', href: '/settings' },
   ],
   counselor: [
-    { label: 'Counselor Dashboard', href: '/counselor-dashboard' },
+    { label: 'Overview', href: '/counselor-dashboard?tab=overview' },
+    { label: 'Mentor Directory', href: '/counselor-dashboard?tab=mentors' },
+    { label: 'Student Directory', href: '/counselor-dashboard?tab=students' },
+    { label: 'Invite Codes', href: '/counselor-dashboard?tab=invites' },
+    { label: 'Programs & Events', href: '/counselor-dashboard?tab=programs' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+  parent: [
+    { label: "Child's Overview", href: '/parents-hub' },
+    { label: 'Overview', href: '/parents-hub' },
+    { label: 'Mentor Overview', href: '/parents-hub' },
+    { label: 'Action Center', href: '/parents-hub' },
+    { label: 'Activities', href: '/parents-hub' },
+    { label: 'Programs & Events', href: '/parents-hub' },
+    { label: 'Leaderboard', href: '/parents-hub' },
+    { label: 'Network & Links', href: '/network-links' },
+    { label: 'Settings', href: '/settings' },
+  ],
+  admin: [
+    { label: 'Overview', href: '/admin-dashboard' },
+    { label: 'Schools', href: '/admin-dashboard' },
+    { label: 'All Mentors', href: '/admin-dashboard' },
+    { label: 'All Students', href: '/admin-dashboard' },
+    { label: 'Link a School', href: '/admin-dashboard' },
+    { label: 'Programs & Events', href: '/admin-dashboard' },
     { label: 'Network & Links', href: '/network-links' },
     { label: 'Settings', href: '/settings' },
   ],
@@ -85,7 +134,7 @@ export default function GlobalSearch() {
               label: s.name,
               sublabel: s.grade ? `Grade ${s.grade}` : 'Student',
               type: 'student',
-              href: `/student-dashboard?q=${encodeURIComponent(s.name)}`,
+              href: `/student-dashboard?tab=roster&q=${encodeURIComponent(s.name)}`,
             })
           );
         } else if (role === 'school') {
@@ -124,7 +173,7 @@ export default function GlobalSearch() {
               href: `/school-dashboard?tab=students&q=${encodeURIComponent(s.full_name)}`,
             })
           );
-        } else if (role === 'counselor') {
+         } else if (role === 'counselor') {
           const { data: students } = await supabase
             .from('user_profiles')
             .select('id, full_name')
@@ -139,7 +188,7 @@ export default function GlobalSearch() {
               label: s.full_name,
               sublabel: 'Student',
               type: 'student',
-              href: `/counselor-dashboard?q=${encodeURIComponent(s.full_name)}`,
+              href: `/counselor-dashboard?tab=students&q=${encodeURIComponent(s.full_name)}`,
             })
           );
         }
@@ -194,7 +243,7 @@ export default function GlobalSearch() {
   const handleSelect = (result: SearchResult) => {
     setQuery('');
     setOpen(false);
-    router.push(result.href);
+    window.location.href = result.href;
   };
 
   const typeIcon: Record<SearchResult['type'], string> = {
@@ -204,7 +253,7 @@ export default function GlobalSearch() {
   };
 
   // Students don't search other people — placeholder reflects that
-  const placeholder = profile?.role === 'student' ? 'Search sections…' : 'Search students, sections…';
+  const placeholder = (profile?.role === 'student' || profile?.role === 'parent') ? 'Search sections…' : 'Search students, sections…';
 
   return (
     <div ref={containerRef} className="relative w-full max-w-xs">
@@ -239,7 +288,7 @@ export default function GlobalSearch() {
             <button
               key={r.id}
               type="button"
-              onClick={() => handleSelect(r)}
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
               className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-secondary transition-colors text-left"
             >
               <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">

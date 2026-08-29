@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
@@ -23,6 +24,57 @@ interface StudentReflection {
   peer_appreciation: string;
   mentor_response: string | null;
   created_at: string;
+}
+
+// ─── Mic Button ────────────────────────────────────────────────────────────
+function MicButton({ onResult }: { onResult: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice input is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript + ' ';
+      }
+      onResult(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      toast.error('Voice input error. Please try again.');
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggleListening}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+        listening ? 'bg-negative text-white animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'
+      }`}
+      title={listening ? 'Stop recording' : 'Start voice input'}
+    >
+      <Icon name={listening ? 'StopIcon' : 'MicrophoneIcon'} size={15} />
+    </button>
+  );
 }
 
 function StudentReflectionsView({ studentId }: { studentId: string }) {
@@ -132,13 +184,16 @@ function StudentReflectionsView({ studentId }: { studentId: string }) {
               <div>
                 {respondingId === r.id ? (
                   <div className="flex flex-col gap-2">
-                    <textarea
-                      className="input-mystic resize-none text-sm"
-                      rows={3}
-                      placeholder="Write a response to this reflection..."
-                      value={responseText}
-                      onChange={(e) => setResponseText(e.target.value)}
-                    />
+                    <div className="flex gap-2 items-start">
+                      <textarea
+                        className="input-mystic resize-none text-sm flex-1"
+                        rows={3}
+                        placeholder="Write a response to this reflection..."
+                        value={responseText}
+                        onChange={(e) => setResponseText(e.target.value)}
+                      />
+                      <MicButton onResult={(text) => setResponseText((prev) => (prev ? prev + ' ' : '') + text)} />
+                    </div>
                     <div className="flex gap-2">
                       <button onClick={() => handleRespond(r.id)} disabled={submittingResponse} className="btn-primary text-xs py-1.5 px-3">
                         {submittingResponse ? 'Sending...' : 'Send Response'}
@@ -239,14 +294,64 @@ export default function StudentDetailView() {
   const supabase = createClient();
 
   const studentId = searchParams.get('studentId') || '';
+  const [taskHistory, setTaskHistory] = useState<any[]>([]);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
   const isNew = searchParams.get('newSession') === 'true';
 
   const [dbStudent, setDbStudent] = useState<DbStudent | null>(null);
+  const [pickerStudents, setPickerStudents] = useState<{ id: string; name: string; grade: string }[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const [dbSessions, setDbSessions] = useState<DbSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
-  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance' | 'reflections'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'charts' | 'history' | 'attendance' | 'reflections' | 'taskHistory'>('analysis');
 
+  useEffect(() => {
+    if (!studentId || activeTab !== 'taskHistory') return;
+    const loadTaskHistory = async () => {
+      setTaskHistoryLoading(true);
+      const { data: tasks } = await supabase
+        .from('student_tasks')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+
+      if (tasks && tasks.length > 0) {
+        const { data: submissions } = await supabase
+          .from('task_submissions')
+          .select('*')
+          .in('task_id', tasks.map((t) => t.id));
+
+        const merged = tasks.map((t) => ({
+          ...t,
+          submission: (submissions || []).find((s) => s.task_id === t.id) || null,
+        }));
+        setTaskHistory(merged);
+      } else {
+        setTaskHistory([]);
+      }
+      setTaskHistoryLoading(false);
+    };
+    loadTaskHistory();
+  }, [studentId, activeTab]);
+
+  useEffect(() => {
+    if (studentId) return; // only load the picker when no specific student was requested
+    const loadPickerList = async () => {
+      setPickerLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setPickerLoading(false); return; }
+      const { data } = await supabase
+        .from('students')
+        .select('id, name, grade')
+        .eq('mentor_id', user.id)
+        .order('name');
+      setPickerStudents(data || []);
+      setPickerLoading(false);
+    };
+    loadPickerList();
+  }, [studentId]);
+  
   // Load student + sessions from Supabase
   useEffect(() => {
     if (!studentId) { setLoading(false); return; }
@@ -256,7 +361,7 @@ export default function StudentDetailView() {
       const [studentResult, sessionsResult] = await Promise.all([
         supabase
           .from('students')
-          .select('id, name, grade, age, gender, avg_score, sessions, trend, topics, notes')
+          .select('id, name, grade, age, gender, avg_score, sessions, trend, topics, notes, mentor_id')
           .eq('id', studentId)
           .maybeSingle(),
         supabase
@@ -266,7 +371,33 @@ export default function StudentDetailView() {
           .order('created_at', { ascending: false }),
       ]);
 
-      if (studentResult.data) setDbStudent(studentResult.data);
+      let resolvedStudent = studentResult.data;
+
+      // Fallback: students who only exist in user_profiles (no students-table row yet)
+      if (!resolvedStudent) {
+        const { data: profileFallback } = await supabase
+          .from('user_profiles')
+          .select('id, full_name, mentor_id')
+          .eq('id', studentId)
+          .maybeSingle();
+        if (profileFallback) {
+          resolvedStudent = {
+            id: profileFallback.id,
+            name: profileFallback.full_name || 'Student',
+            grade: '',
+            age: null,
+            gender: null,
+            avg_score: 0,
+            sessions: 0,
+            trend: 'stable',
+            topics: [],
+            notes: '',
+            mentor_id: profileFallback.mentor_id || null,
+          } as DbStudent;
+        }
+      }
+
+      if (resolvedStudent) setDbStudent(resolvedStudent);
       const sessions = sessionsResult.data || [];
       setDbSessions(sessions);
       if (sessions.length > 0) {
@@ -326,6 +457,7 @@ export default function StudentDetailView() {
     { id: 'history' as const, label: 'Session History', icon: 'ClockIcon' },
     { id: 'attendance' as const, label: 'Attendance', icon: 'CalendarDaysIcon' },
     { id: 'reflections' as const, label: 'Reflections', icon: 'PencilSquareIcon' },
+    { id: 'taskHistory' as const, label: 'Task History', icon: 'ClipboardDocumentListIcon' },
   ];
 
   const formatDate = (dateStr: string) => {
@@ -348,7 +480,41 @@ export default function StudentDetailView() {
     );
   }
 
-  // ─── No student found ─────────────────────────────────────────────────────
+  // ─── No student selected — show a picker instead of a dead end ────────────
+  if (!studentId) {
+    return (
+      <div className="max-w-lg mx-auto py-12 flex flex-col gap-4 animate-fade-in">
+        <div className="text-center mb-2">
+          <Icon name="ChartBarIcon" size={36} className="mx-auto mb-3 text-primary opacity-70" />
+          <h2 className="font-700 text-foreground text-lg">Select a Student</h2>
+          <p className="text-sm text-muted-foreground mt-1">Choose a student to view their analysis history.</p>
+        </div>
+        {pickerLoading ? (
+          <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+        ) : pickerStudents.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No students linked yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {pickerStudents.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => router.push(`/student-analysis-history?studentId=${s.id}`)}
+                className="flex items-center justify-between p-3.5 rounded-xl bg-card border border-border hover:border-primary/40 hover:bg-secondary/40 transition-colors text-left"
+              >
+                <div>
+                  <p className="text-sm font-600 text-foreground">{s.name}</p>
+                  <p className="text-xs text-muted-foreground">{s.grade}</p>
+                </div>
+                <Icon name="ChevronRightIcon" size={16} className="text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Student ID was given but no record found ──────────────────────────────
   if (!dbStudent) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -544,7 +710,7 @@ export default function StudentDetailView() {
             </div>
           )}
 
-          <AnalysisCards analysis={activeSession.analysis} isNew={isNew} />
+          <AnalysisCards analysis={activeSession.analysis} isNew={isNew} studentId={dbStudent.id} mentorId={dbStudent.mentor_id} />
         </div>
       )}
 
@@ -660,6 +826,54 @@ export default function StudentDetailView() {
 
       {activeTab === 'reflections' && (
         <StudentReflectionsView studentId={studentId} />
+      )}
+
+      {activeTab === 'taskHistory' && (
+        <div className="card-mystic p-5">
+          <h2 className="text-lg font-700 text-foreground mb-4">Task History</h2>
+          {taskHistoryLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : taskHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No tasks assigned to this student yet.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {taskHistory.map((t) => (
+                <div key={t.id} className="p-4 rounded-xl bg-secondary/40 border border-border">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
+                      t.status === 'Completed' ? 'bg-positive/10 text-positive border-positive/20'
+                        : t.status === 'In Progress' ? 'bg-info/10 text-info border-info/20' : 'bg-muted text-muted-foreground border-border'
+                    }`}>{t.status}</span>
+                    <span className="text-xs text-muted-foreground">
+                      Assigned {formatDate(t.created_at)}
+                      {t.deadline ? ` · Due ${formatDate(t.deadline)}` : ''}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/80 leading-relaxed mb-2">{t.task_description}</p>
+                  {t.submission ? (
+                    <div className="mt-2 p-2.5 rounded-lg bg-card border border-border">
+                      <a href={t.submission.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1.5 mb-1">
+                        <Icon name="DocumentIcon" size={13} /> {t.submission.file_name}
+                      </a>
+                      {t.submission.mentor_rating ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-amber-500 text-sm">{'⭐'.repeat(t.submission.mentor_rating)}</span>
+                          {t.submission.mentor_comments && (
+                            <p className="text-xs text-foreground/80 italic">"{t.submission.mentor_comments}"</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Awaiting your review</span>
+                      )}
+                    </div>
+                  ) : t.requires_submission ? (
+                    <p className="text-xs text-muted-foreground italic">File required — not yet submitted</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Student Notes */}

@@ -53,11 +53,11 @@ export interface AttendanceRecord {
 }
 
 export const TOPICS = [
-  'Teamwork and Leadership',
-  'Digital Hygiene and Privacy Literacy',
-  'Emotional Resilience and Mental Well-being',
-  'Personal Safety, Consent, and Boundaries',
-  'Civic Sense and Social Responsibility',
+  'Relational Intelligence and Community Stewardship',
+  'Digital Wisdom and Citizenship',
+  'Psychological Fortitude and Mindfulness',
+  'Bodily Integrity and Social Conscientiousness',
+  'Authentic Identity and Purposeful Worth',
 ];
 
 export const GENDER_OPTIONS: Gender[] = [
@@ -93,7 +93,7 @@ export const mockStudents: Student[] = [
     sessionCount: 8,
     averageScore: 74,
     scoreTrend: 'up',
-    primaryTopics: ['Teamwork and Leadership', 'Emotional Resilience and Mental Well-being'],
+    primaryTopics: ['Relational Intelligence and Community Stewardship', 'Psychological Fortitude and Mindfulness'],
     notes: 'Strong analytical ability, struggles with test anxiety.',
   },
   {
@@ -110,7 +110,7 @@ export const mockStudents: Student[] = [
     sessionCount: 12,
     averageScore: 82,
     scoreTrend: 'up',
-    primaryTopics: ['Civic Sense and Social Responsibility', 'Teamwork and Leadership'],
+    primaryTopics: ['Authentic Identity and Purposeful Worth', 'Relational Intelligence and Community Stewardship'],
     notes: 'Excellent communicator, needs help with structured argumentation.',
   },
   {
@@ -127,7 +127,7 @@ export const mockStudents: Student[] = [
     sessionCount: 6,
     averageScore: 61,
     scoreTrend: 'down',
-    primaryTopics: ['Emotional Resilience and Mental Well-being', 'Personal Safety, Consent, and Boundaries'],
+    primaryTopics: ['Psychological Fortitude and Mindfulness', 'Bodily Integrity and Social Conscientiousness'],
     notes: 'Bright student going through a difficult family period.',
   },
   {
@@ -144,7 +144,7 @@ export const mockStudents: Student[] = [
     sessionCount: 15,
     averageScore: 88,
     scoreTrend: 'stable',
-    primaryTopics: ['Digital Hygiene and Privacy Literacy', 'Civic Sense and Social Responsibility'],
+    primaryTopics: ['Digital Wisdom and Citizenship', 'Authentic Identity and Purposeful Worth'],
     notes: 'Consistently high performer, preparing for competitive exams.',
   },
   {
@@ -161,7 +161,7 @@ export const mockStudents: Student[] = [
     sessionCount: 9,
     averageScore: 69,
     scoreTrend: 'up',
-    primaryTopics: ['Civic Sense and Social Responsibility', 'Teamwork and Leadership'],
+    primaryTopics: ['Authentic Identity and Purposeful Worth', 'Relational Intelligence and Community Stewardship'],
     notes: 'Highly motivated, needs structure and consistent follow-up.',
   },
   {
@@ -178,7 +178,7 @@ export const mockStudents: Student[] = [
     sessionCount: 5,
     averageScore: 55,
     scoreTrend: 'down',
-    primaryTopics: ['Emotional Resilience and Mental Well-being', 'Personal Safety, Consent, and Boundaries'],
+    primaryTopics: ['Psychological Fortitude and Mindfulness', 'Bodily Integrity and Social Conscientiousness'],
     notes: 'Needs significant support; flagged for counseling referral.',
   },
   {
@@ -195,7 +195,7 @@ export const mockStudents: Student[] = [
     sessionCount: 7,
     averageScore: 77,
     scoreTrend: 'up',
-    primaryTopics: ['Teamwork and Leadership', 'Digital Hygiene and Privacy Literacy'],
+    primaryTopics: ['Relational Intelligence and Community Stewardship', 'Digital Wisdom and Citizenship'],
     notes: 'Natural leader, excels in group settings.',
   },
   {
@@ -212,7 +212,7 @@ export const mockStudents: Student[] = [
     sessionCount: 11,
     averageScore: 80,
     scoreTrend: 'stable',
-    primaryTopics: ['Personal Safety, Consent, and Boundaries', 'Emotional Resilience and Mental Well-being'],
+    primaryTopics: ['Bodily Integrity and Social Conscientiousness', 'Psychological Fortitude and Mindfulness'],
     notes: 'Consistent performer, working on confidence in oral presentations.',
   },
   {
@@ -229,7 +229,7 @@ export const mockStudents: Student[] = [
     sessionCount: 4,
     averageScore: 63,
     scoreTrend: 'stable',
-    primaryTopics: ['Civic Sense and Social Responsibility', 'Digital Hygiene and Privacy Literacy'],
+    primaryTopics: ['Authentic Identity and Purposeful Worth', 'Digital Wisdom and Citizenship'],
     notes: 'Irregular attendance affecting continuity.',
   },
   {
@@ -246,7 +246,7 @@ export const mockStudents: Student[] = [
     sessionCount: 8,
     averageScore: 72,
     scoreTrend: 'up',
-    primaryTopics: ['Civic Sense and Social Responsibility', 'Teamwork and Leadership'],
+    primaryTopics: ['Authentic Identity and Purposeful Worth', 'Relational Intelligence and Community Stewardship'],
     notes: 'Creative thinker, struggles with time management under pressure.',
   },
   {
@@ -263,7 +263,7 @@ export const mockStudents: Student[] = [
     sessionCount: 6,
     averageScore: 85,
     scoreTrend: 'up',
-    primaryTopics: ['Digital Hygiene and Privacy Literacy', 'Civic Sense and Social Responsibility'],
+    primaryTopics: ['Digital Wisdom and Citizenship', 'Authentic Identity and Purposeful Worth'],
     notes: 'Exceptionally self-motivated, aims for STEM career.',
   },
   {
@@ -280,7 +280,7 @@ export const mockStudents: Student[] = [
     sessionCount: 14,
     averageScore: 78,
     scoreTrend: 'up',
-    primaryTopics: ['Teamwork and Leadership', 'Civic Sense and Social Responsibility'],
+    primaryTopics: ['Relational Intelligence and Community Stewardship', 'Authentic Identity and Purposeful Worth'],
     notes: 'Debate team captain, working on academic writing formality.',
   },
 ];
@@ -290,7 +290,7 @@ export const mockSessions: Session[] = [
     id: 'session-001',
     studentId: 'student-001',
     date: '2026-08-03',
-    topic: 'Teamwork and Leadership',
+    topic: 'Relational Intelligence and Community Stewardship',
     score: 78,
     observation:
       'Arjun showed strong conceptual understanding but struggled with time management. He became visibly anxious under pressure. His written work is neat and logical.',
@@ -335,7 +335,7 @@ export const mockSessions: Session[] = [
     id: 'session-002',
     studentId: 'student-001',
     date: '2026-07-20',
-    topic: 'Emotional Resilience and Mental Well-being',
+    topic: 'Psychological Fortitude and Mindfulness',
     score: 70,
     observation:
       'Discussed strategies for managing frustration. Arjun tends to withdraw when he feels unheard. Showed good insight into his own reactions.',
@@ -369,14 +369,14 @@ export const mockSessions: Session[] = [
         'Read one chapter on emotional resilience — discuss key insights with mentor',
       ],
     },
-    modelUsed: 'Gemini Pro',
+    modelUsed: 'Gemini Flash',
     cacheHit: false,
   },
   {
     id: 'session-003',
     studentId: 'student-001',
     date: '2026-07-06',
-    topic: 'Teamwork and Leadership',
+    topic: 'Relational Intelligence and Community Stewardship',
     score: 65,
     observation: 'Struggled with asserting leadership. Made hesitant decisions in group scenarios.',
     observations: {
@@ -412,7 +412,7 @@ export const mockSessions: Session[] = [
     id: 'session-004',
     studentId: 'student-001',
     date: '2026-06-22',
-    topic: 'Teamwork and Leadership',
+    topic: 'Relational Intelligence and Community Stewardship',
     score: 60,
     observation: 'First session on leadership. Baseline assessment. Unfamiliar with team dynamics.',
     observations: {
@@ -448,7 +448,7 @@ export const mockSessions: Session[] = [
     id: 'session-005',
     studentId: 'student-002',
     date: '2026-08-01',
-    topic: 'Civic Sense and Social Responsibility',
+    topic: 'Authentic Identity and Purposeful Worth',
     score: 85,
     observation:
       'Priya submitted outstanding reflections on civic duty but her arguments lacked logical scaffolding. Thesis statements are vague.',

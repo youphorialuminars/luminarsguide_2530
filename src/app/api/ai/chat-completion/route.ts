@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { completion } from '@rocketnew/llm-sdk';
 
 const API_KEYS: Record<string, string | undefined> = {
@@ -7,6 +8,12 @@ const API_KEYS: Record<string, string | undefined> = {
   GEMINI: process.env.GEMINI_API_KEY,
   PERPLEXITY: process.env.PERPLEXITY_API_KEY,
 };
+
+function getServerSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(url, key);
+}
 
 function formatErrorResponse(error: unknown, provider?: string) {
   const statusCode = (error as any)?.statusCode || (error as any)?.status || 500;
@@ -23,6 +30,17 @@ export async function POST(request: NextRequest) {
   let body: any = {};
 
   try {
+    const authHeader = request.headers.get('authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const supabase = getServerSupabase();
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     body = await request.json();
     const { provider, model, messages, stream = false, parameters = {} } = body;
 

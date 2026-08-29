@@ -37,11 +37,11 @@ interface AttendanceRow {
 }
 
 const PILLARS = [
-  'Teamwork and Leadership',
-  'Digital Hygiene and Privacy Literacy',
-  'Emotional Resilience and Mental Well-being',
-  'Personal Safety, Consent, and Boundaries',
-  'Civic Sense and Social Responsibility',
+  'Relational Intelligence and Community Stewardship',
+  'Digital Wisdom and Citizenship',
+  'Psychological Fortitude and Mindfulness',
+  'Bodily Integrity and Social Conscientiousness',
+  'Authentic Identity and Purposeful Worth',
 ];
 const PILLAR_COLORS = ['#c4b5fd', '#93c5fd', '#86efac', '#fcd34d', '#f9a8d4'];
 

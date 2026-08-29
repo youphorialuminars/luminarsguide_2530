@@ -6,8 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 
 interface SchoolEvent {
   id: string;
-  title: string;
-  event_date: string;
+  event_title: string;
+  start_time: string;
   event_type: 'performance_schedule' | 'holiday';
 }
 
@@ -40,8 +40,8 @@ export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarP
     setLoading(true);
     let query = supabase
       .from('school_events')
-      .select('id, title, event_date, event_type')
-      .order('event_date');
+      .select('id, event_title, start_time, event_type')
+      .order('start_time');
     if (schoolId) {
       query = query.eq('school_id', schoolId);
     }
@@ -62,13 +62,14 @@ export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarP
   ];
 
   const eventsThisMonth = events.filter((e) => {
-    const d = new Date(e.event_date);
+    const d = new Date(e.start_time);
     return d.getFullYear() === year && d.getMonth() === month;
   });
 
   const eventsByDate = new Map<string, SchoolEvent[]>();
   eventsThisMonth.forEach((e) => {
-    const key = e.event_date;
+    const d = new Date(e.start_time);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (!eventsByDate.has(key)) eventsByDate.set(key, []);
     eventsByDate.get(key)!.push(e);
   });
@@ -77,10 +78,10 @@ export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarP
   const upcomingEvents = events
     .filter((e) => {
       if (!today) return true;
-      const d = new Date(e.event_date);
+      const d = new Date(e.start_time);
       return d.getFullYear() > today.year ||
         (d.getFullYear() === today.year && d.getMonth() > today.month) ||
-        (d.getFullYear() === today.year && d.getMonth() === today.month && parseInt(e.event_date.split('-')[2]) >= today.day);
+        (d.getFullYear() === today.year && d.getMonth() === today.month && d.getDate() >= today.day);
     })
     .slice(0, 5);
 
@@ -157,9 +158,9 @@ export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarP
                       e.event_type === 'performance_schedule'
                         ? 'bg-violet-200 text-violet-800' :'bg-amber-200 text-amber-800'
                     }`}
-                    title={e.title}
+                    title={e.event_title}
                   >
-                    {e.title}
+                    {e.event_title}
                   </div>
                 ))}
               </div>
@@ -191,9 +192,9 @@ export default function SchoolEventsCalendar({ schoolId }: SchoolEventsCalendarP
                   />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-600 text-foreground truncate">{e.title}</p>
+                  <p className="text-sm font-600 text-foreground truncate">{e.event_title}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(e.event_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {new Date(e.start_time).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </p>
                 </div>
                 <span className={`text-xs font-600 px-2 py-0.5 rounded-full border flex-shrink-0 ${

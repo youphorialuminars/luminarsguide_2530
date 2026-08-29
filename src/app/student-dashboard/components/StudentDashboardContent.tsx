@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 
 type SortOption = 'name' | 'score' | 'sessions' | 'lastSession';
 type FilterOption = 'all' | 'up' | 'down' | 'stable';
-type MentorTab = 'roster' | 'reflections' | 'surveys' | 'tasks' | 'calendar' | 'parent-queries';
+type MentorTab = 'roster' | 'attendance' | 'reflections' | 'surveys' | 'tasks' | 'calendar' | 'parent-queries' | 'parent-activities' | 'programs' | 'suggestions';
 
 // ─── DB Student type (from public.students) ───────────────────────────────────
 interface DbStudent {
@@ -274,7 +274,34 @@ export default function StudentDashboardContent() {
   const [studentsLoading, setStudentsLoading] = useState(true);
   const [mentorCode, setMentorCode] = useState<string | null>(null);
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<MentorTab>('roster');
+  const searchParamsTab = useSearchParams();
+  const [activeTab, setActiveTab] = useState<MentorTab>(
+    (searchParamsTab.get('tab') as MentorTab) || 'roster'
+  );
+  const [reflectionFromDate, setReflectionFromDate] = useState<string>('');
+  const [reflectionToDate, setReflectionToDate] = useState<string>('');
+  const [reflectionViewMode, setReflectionViewMode] = useState<'calendar' | 'range'>('calendar');
+  const [reflectionRangeSubmitted, setReflectionRangeSubmitted] = useState(false);
+
+  // Pending Parent Approvals (parents linked to my students, awaiting my sign-off)
+  const [pendingParentApprovals, setPendingParentApprovals] = useState<any[]>([]);
+  const [pendingParentApprovalsLoading, setPendingParentApprovalsLoading] = useState(true);
+  const [approvingParentId, setApprovingParentId] = useState<string | null>(null);
+
+  // Pending Student Approvals (students who signed up with my invite code, awaiting my sign-off)
+  const [pendingStudentApprovals, setPendingStudentApprovals] = useState<any[]>([]);
+  const [pendingStudentApprovalsLoading, setPendingStudentApprovalsLoading] = useState(true);
+  const [approvingStudentId, setApprovingStudentId] = useState<string | null>(null);
+
+  // Pending Counselor Approvals (counselors who signed up with my invite code, awaiting my sign-off)
+  const [pendingCounselorApprovals, setPendingCounselorApprovals] = useState<any[]>([]);
+  const [pendingCounselorApprovalsLoading, setPendingCounselorApprovalsLoading] = useState(true);
+  const [approvingCounselorId, setApprovingCounselorId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = searchParamsTab.get('tab');
+    if (t) setActiveTab(t as MentorTab);
+  }, [searchParamsTab]);
 
   // Parent engagement scores per student (studentId -> score)
   const [parentEngagementScores, setParentEngagementScores] = useState<Record<string, number>>({});
@@ -314,6 +341,32 @@ export default function StudentDashboardContent() {
 
   // Tasks state
   const [dbStudents, setDbStudents] = useState<{ id: string; name: string }[]>([]);
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [attendanceMarks, setAttendanceMarks] = useState<Record<string, 'present' | 'absent'>>({});
+  const [savingAttendance, setSavingAttendance] = useState(false);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [parentActivities, setParentActivities] = useState<{ id: string; title: string; description: string; activity_type: string; created_at: string }[]>([]);
+  const [activityResponseCounts, setActivityResponseCounts] = useState<Record<string, number>>({});
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [activityForm, setActivityForm] = useState({ title: '', description: '', activity_type: 'task' as 'task' | 'game' });
+  const [postingActivity, setPostingActivity] = useState(false);
+  const [programs, setPrograms] = useState<{ id: string; posted_by: string; posted_by_role: string; title: string; description: string; program_date: string | null; external_link: string | null; file_url: string | null; file_name: string | null; created_at: string }[]>([]);
+  const [posterNames, setPosterNames] = useState<Record<string, string>>({});
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [programForm, setProgramForm] = useState({ title: '', description: '', program_date: '', external_link: '' });
+  const [programFile, setProgramFile] = useState<File | null>(null);
+  const [postingProgram, setPostingProgram] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [suggestionRecipientRole, setSuggestionRecipientRole] = useState('');
+  const [suggestionRecipientOptions, setSuggestionRecipientOptions] = useState<{ id: string; name: string }[]>([]);
+  const [suggestionRecipientId, setSuggestionRecipientId] = useState('');
+  const [suggestionType, setSuggestionType] = useState<'suggestion' | 'feedback' | 'query'>('suggestion');
+  const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [revealIdentity, setRevealIdentity] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [receivedSuggestions, setReceivedSuggestions] = useState<any[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [senderNames, setSenderNames] = useState<Record<string, string>>({});
   const [tasks, setTasks] = useState<StudentTask[]>([]);
   const [taskForm, setTaskForm] = useState({
     student_id: '',
@@ -330,12 +383,13 @@ export default function StudentDashboardContent() {
 
   // Reflections / leaderboard state
   const [reflections, setReflections] = useState<MentorReflection[]>([]);
-  const [reflectionForm, setReflectionForm] = useState({ impact_score: 7, reflection_text: '' });
+  const [reflectionForm, setReflectionForm] = useState({ impact_score: 7, students_helped_count: 0, confidence_score: 3, preparedness_score: 3, reflection_text: '' });
   const [submittingReflection, setSubmittingReflection] = useState(false);
   const [peerStats, setPeerStats] = useState<PeerStats | null>(null);
   const [avgFeedbackScore, setAvgFeedbackScore] = useState(0);
   const [studentFeedback, setStudentFeedback] = useState<any[]>([]);
   const [reflectionsLoading, setReflectionsLoading] = useState(false);
+  const [selectedReflectionWeek, setSelectedReflectionWeek] = useState<string | null>(null);
   const [sessionsThisWeek, setSessionsThisWeek] = useState(0);
 
   const avgScore = useMemo(() => {
@@ -432,15 +486,10 @@ export default function StudentDashboardContent() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setStudentsLoading(false); return; }
 
-    const [primaryResult, linkedResult, profileResult] = await Promise.all([
+    const [studentsResult, profileResult] = await Promise.all([
       supabase
-        .from('user_profiles')
-        .select('id, full_name, email, mentor_id, role, created_at, student_id')
-        .eq('role', 'student')
-        .eq('mentor_id', user.id),
-      supabase
-        .from('student_mentor_links')
-        .select('student_user_id')
+        .from('students')
+        .select('id, name, grade, age, gender, mentor_id, avg_score, sessions, topics, trend, alert_level, last_session, notes, avatar')
         .eq('mentor_id', user.id),
       supabase
         .from('user_profiles')
@@ -449,52 +498,14 @@ export default function StudentDashboardContent() {
         .single(),
     ]);
 
-    // Combine students found via the old single mentor_id field and the new multi-mentor list,
-    // removing duplicates so a student showing up in both isn't listed twice
-    const linkedStudentIds = (linkedResult.data || []).map((r) => r.student_user_id);
-    let extraProfiles: DbUserProfileStudent[] = [];
-    if (linkedStudentIds.length > 0) {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, email, mentor_id, role, created_at, student_id')
-        .eq('role', 'student')
-        .in('id', linkedStudentIds);
-      extraProfiles = data || [];
-    }
+    const rawStudents: DbStudent[] = studentsResult.data || [];
 
-    const seen = new Set<string>();
-    const rawProfiles: DbUserProfileStudent[] = [...(primaryResult.data || []), ...extraProfiles].filter((p) => {
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
-
-    // Map user_profiles students to UiStudent shape
-    const mappedStudents: UiStudent[] = rawProfiles.map((p, i) => {
-      const nameParts = (p.full_name || p.email || 'Student').split(' ');
-      const initials = nameParts.slice(0, 2).map((n: string) => n[0]).join('').toUpperCase();
-      return {
-        id: p.student_id || p.id,
-        name: p.full_name || p.email || 'Student',
-        grade: '',
-        age: undefined,
-        gender: undefined,
-        mentorId: p.mentor_id,
-        avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
-        avatarInitials: initials,
-        enrolledDate: p.created_at ? p.created_at.split('T')[0] : '',
-        lastSessionDate: '—',
-        sessionCount: 0,
-        averageScore: 0,
-        scoreTrend: 'stable',
-        primaryTopics: [],
-        notes: '',
-      };
-    });
+    // Map the students table rows to the UI shape using the app's existing mapper
+    const mappedStudents: UiStudent[] = rawStudents.map(mapDbStudentToUi);
 
     setStudents(mappedStudents);
-    setDbStudents(rawProfiles.map((p) => ({ id: p.id, name: p.full_name || p.email || 'Student' })));
-
+    setDbStudents(rawStudents.map((s) => ({ id: s.id, name: s.name })));
+    
     if (profileResult.data?.mentor_code) {
       setMentorCode(profileResult.data.mentor_code);
     }
@@ -519,15 +530,34 @@ export default function StudentDashboardContent() {
 
   // ─── Remove Student (set mentor_id to null in user_profiles) ─────────────
   const handleRemoveStudent = async (studentId: string, studentName: string) => {
-    if (!confirm(`Remove ${studentName} from your roster? They will be unlinked but their data will be preserved.`)) return;
+    if (!confirm(`Remove ${studentName} from your roster? This only removes them from your roster — they remain linked to any other mentors they have.`)) return;
     setRemovingStudentId(studentId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setRemovingStudentId(null); return; }
+
+    // Get the student's user_profiles id before deleting, so we can clean up the link table too
+    const { data: studentRow } = await supabase
+      .from('students')
+      .select('student_user_id')
+      .eq('id', studentId)
+      .maybeSingle();
+
     const { error } = await supabase
-      .from('user_profiles')
-      .update({ mentor_id: null })
-      .eq('id', studentId);
+      .from('students')
+      .delete()
+      .eq('id', studentId)
+      .eq('mentor_id', user.id);
+
     if (error) {
       toast.error('Failed to remove student: ' + error.message);
     } else {
+      if (studentRow?.student_user_id) {
+        await supabase
+          .from('student_mentor_links')
+          .delete()
+          .eq('student_user_id', studentRow.student_user_id)
+          .eq('mentor_id', user.id);
+      }
       toast.success(`${studentName} removed from your roster.`);
       setStudents((prev) => prev.filter((s) => s.id !== studentId));
       setDbStudents((prev) => prev.filter((s) => s.id !== studentId));
@@ -604,32 +634,37 @@ export default function StudentDashboardContent() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setReflectionsLoading(false); return; }
 
-    const [reflResult, feedbackResult, allReflResult] = await Promise.all([
+    const [reflResult, feedbackResult, allReflResult, studentsResult] = await Promise.all([
       supabase.from('mentor_weekly_reflections').select('*').eq('mentor_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('mentor_feedback').select('student_id, mentor_interaction_score, active_listening_score, teaching_clarity_score, fruitful_comments, help_needed_comments, created_at').eq('mentor_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('mentor_feedback').select('id, student_id, mentor_interaction_score, active_listening_score, teaching_clarity_score, emotional_safety_score, independence_score, fruitful_comments, help_needed_comments, appreciation_note, created_at').eq('mentor_id', user.id).order('created_at', { ascending: false }),
       supabase.from('mentor_weekly_reflections').select('impact_score'),
+      supabase.from('students').select('id, name').eq('mentor_id', user.id),
     ]);
+
+    if (reflResult.error) {
+      console.error('mentor_weekly_reflections load failed:', reflResult.error);
+      toast.error('Could not load reflections: ' + reflResult.error.message);
+    }
+    if (feedbackResult.error) {
+      console.error('mentor_feedback load failed:', feedbackResult.error);
+    }
 
     const reflData = reflResult.data;
     const feedbackData = feedbackResult.data;
     const allReflData = allReflResult.data;
     setStudentFeedback(feedbackData || []);
+    setDbStudents(studentsResult.data || []);
 
     setReflections(reflData || []);
 
     if (feedbackData && feedbackData.length > 0) {
       const total = feedbackData.reduce((s: number, f: any) =>
-        s + (f.mentor_interaction_score + f.active_listening_score + f.teaching_clarity_score) / 3, 0);
+        s + (f.mentor_interaction_score + f.active_listening_score + f.teaching_clarity_score + (f.emotional_safety_score || 3) + (f.independence_score || 3)) / 5, 0);
       setAvgFeedbackScore(total / feedbackData.length);
     }
 
-    if (allReflData && allReflData.length > 0) {
-      const globalAvg = allReflData.reduce((s: number, r: any) => s + r.impact_score, 0) / allReflData.length;
-      const myAvg = reflData && reflData.length > 0
-        ? reflData.reduce((s: number, r: any) => s + r.impact_score, 0) / reflData.length
-        : 0;
-      setPeerStats({ avgScore: Math.round(globalAvg * 10), myScore: Math.round(myAvg * 10) });
-    }
+    const { data: peerAvgResult } = await supabase.rpc('get_mentor_peer_avg_score');
+    setPeerStats((prev) => ({ ...prev, avgScore: Math.round(peerAvgResult || 0) }));
 
     setReflectionsLoading(false);
   }, [supabase]);
@@ -766,13 +801,16 @@ export default function StudentDashboardContent() {
       mentor_id: user.id,
       week_start: weekStart.toISOString().split('T')[0],
       impact_score: reflectionForm.impact_score,
-      reflection_text: reflectionForm.reflection_text.trim(),
+      students_helped_count: reflectionForm.students_helped_count,
+      confidence_score: reflectionForm.confidence_score,
+      preparedness_score: reflectionForm.preparedness_score,
+      reflection_text: reflectionForm.reflection_text.trim() || null,
     });
     if (error) {
       toast.error('Failed to submit reflection: ' + error.message);
     } else {
       toast.success('Reflection submitted!');
-      setReflectionForm({ impact_score: 7, reflection_text: '' });
+      setReflectionForm({ impact_score: 7, students_helped_count: 0, confidence_score: 3, preparedness_score: 3, reflection_text: '' });
       loadReflections();
     }
     setSubmittingReflection(false);
@@ -824,6 +862,10 @@ export default function StudentDashboardContent() {
 
   const myPerfScore = calcPerformanceScore(reflections, avgScore, avgFeedbackScore);
 
+  useEffect(() => {
+    setPeerStats((prev) => ({ ...prev, myScore: myPerfScore }));
+  }, [myPerfScore]);
+
   const filterOptions: { value: FilterOption; label: string; icon: string }[] = [
     { value: 'all', label: 'All Students', icon: 'UserGroupIcon' },
     { value: 'up', label: 'Improving', icon: 'ArrowTrendingUpIcon' },
@@ -831,18 +873,425 @@ export default function StudentDashboardContent() {
     { value: 'down', label: 'Declining', icon: 'ArrowTrendingDownIcon' },
   ];
 
-  const mentorTabs: { id: MentorTab; label: string; icon: string }[] = [
-    { id: 'roster', label: 'Student Roster', icon: 'UserGroupIcon' },
-    { id: 'calendar', label: 'Schedule Sessions', icon: 'CalendarDaysIcon' },
-    { id: 'reflections', label: 'Self-Reflection & Peer Ranking', icon: 'SparklesIcon' },
-    { id: 'surveys', label: 'Manage Surveys', icon: 'ClipboardDocumentListIcon' },
-    { id: 'tasks', label: 'Assign Tasks', icon: 'CheckCircleIcon' },
-    { id: 'parent-queries', label: 'Parent Queries', icon: 'ChatBubbleLeftRightIcon' },
-  ];
-
   const getStudentName = (id: string) => dbStudents.find((s) => s.id === id)?.name || 'Unknown';
 
+  const loadParentActivities = useCallback(async () => {
+    setActivitiesLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setActivitiesLoading(false); return; }
+    const { data } = await supabase
+      .from('parent_activities')
+      .select('id, title, description, activity_type, created_at')
+      .eq('mentor_id', user.id)
+      .order('created_at', { ascending: false });
+    setParentActivities(data || []);
+
+    if (data && data.length > 0) {
+      const { data: responses } = await supabase
+        .from('parent_activity_responses')
+        .select('activity_id')
+        .in('activity_id', data.map((a) => a.id));
+      const counts: Record<string, number> = {};
+      (responses || []).forEach((r) => { counts[r.activity_id] = (counts[r.activity_id] || 0) + 1; });
+      setActivityResponseCounts(counts);
+    }
+    setActivitiesLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'parent-activities') loadParentActivities();
+  }, [activeTab, loadParentActivities]);
+
+  const handlePostActivity = async () => {
+    if (!activityForm.title.trim() || !activityForm.description.trim()) {
+      toast.error('Please fill in both title and description.');
+      return;
+    }
+    setPostingActivity(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPostingActivity(false); return; }
+    const { error } = await supabase.from('parent_activities').insert({
+      mentor_id: user.id,
+      title: activityForm.title.trim(),
+      description: activityForm.description.trim(),
+      activity_type: activityForm.activity_type,
+    });
+    if (error) {
+      toast.error('Failed to post activity: ' + error.message);
+    } else {
+      toast.success('Activity posted for parents!');
+      setActivityForm({ title: '', description: '', activity_type: 'task' });
+      loadParentActivities();
+    }
+    setPostingActivity(false);
+  };
+
+  const handleDeleteActivity = async (id: string) => {
+    const { error } = await supabase.from('parent_activities').delete().eq('id', id);
+    if (error) { toast.error('Failed to delete activity.'); }
+    else { toast.success('Activity removed.'); loadParentActivities(); }
+  };
+
+  const loadPrograms = useCallback(async () => {
+    setProgramsLoading(true);
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setPrograms(data || []);
+
+    if (data && data.length > 0) {
+      const posterIds = Array.from(new Set(data.map((p) => p.posted_by)));
+      const { data: posters } = await supabase
+        .from('user_profiles')
+        .select('id, full_name')
+        .in('id', posterIds);
+      const names: Record<string, string> = {};
+      (posters || []).forEach((p) => { names[p.id] = p.full_name || 'Unknown'; });
+      setPosterNames(names);
+    }
+    setProgramsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'programs') {
+      loadPrograms();
+      supabase.auth.getUser().then(({ data: { user } }) => setCurrentUserId(user?.id || null));
+    }
+  }, [activeTab, loadPrograms, supabase]);
+
+  const handlePostProgram = async () => {
+    if (!programForm.title.trim() || !programForm.description.trim()) {
+      toast.error('Please fill in both title and description.');
+      return;
+    }
+    setPostingProgram(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPostingProgram(false); return; }
+
+    let fileUrl: string | null = null;
+    let fileName: string | null = null;
+
+    if (programFile) {
+      if (programFile.size > 2 * 1024 * 1024) {
+        toast.error('File too large. Max size is 2MB.');
+        setPostingProgram(false);
+        return;
+      }
+      const filePath = `${user.id}/${Date.now()}_${programFile.name}`;
+      const { error: uploadError } = await supabase.storage.from('program-files').upload(filePath, programFile);
+      if (uploadError) {
+        toast.error('File upload failed: ' + uploadError.message);
+        setPostingProgram(false);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from('program-files').getPublicUrl(filePath);
+      fileUrl = urlData.publicUrl;
+      fileName = programFile.name;
+    }
+
+    const { error } = await supabase.from('programs').insert({
+      posted_by: user.id,
+      posted_by_role: 'mentor',
+      title: programForm.title.trim(),
+      description: programForm.description.trim(),
+      program_date: programForm.program_date || null,
+      external_link: programForm.external_link.trim() || null,
+      file_url: fileUrl,
+      file_name: fileName,
+    });
+
+    if (error) {
+      toast.error('Failed to post program: ' + error.message);
+    } else {
+      toast.success('Program posted — visible to students, parents, counselors, and schools!');
+      setProgramForm({ title: '', description: '', program_date: '', external_link: '' });
+      setProgramFile(null);
+      loadPrograms();
+    }
+    setPostingProgram(false);
+  };
+
+  const handleDeleteProgram = async (id: string) => {
+    const { error } = await supabase.from('programs').delete().eq('id', id);
+    if (error) { toast.error('Failed to delete program.'); }
+    else { toast.success('Program removed.'); loadPrograms(); }
+  };
+
+  const MENTOR_CAN_SEND_TO = ['parent', 'admin'];
+
+  const loadSuggestionRecipients = useCallback(async (role: string) => {
+    if (!role) { setSuggestionRecipientOptions([]); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    let options: { id: string; name: string }[] = [];
+
+    if (role === 'parent') {
+      const { data: myStudents } = await supabase.from('students').select('id').eq('mentor_id', user.id);
+      const studentIds = (myStudents || []).map((s) => s.id);
+      if (studentIds.length > 0) {
+        const { data: links } = await supabase.from('parent_student_links').select('parent_id').in('student_id', studentIds);
+        const parentIds = Array.from(new Set((links || []).map((l) => l.parent_id)));
+        if (parentIds.length > 0) {
+          const { data: people } = await supabase.from('user_profiles').select('id, full_name').in('id', parentIds);
+          options = (people || []).map((p) => ({ id: p.id, name: p.full_name || 'Parent' }));
+        }
+      }
+    } else if (role === 'admin') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('role', 'admin');
+      options = (people || []).map((p) => ({ id: p.id, name: p.full_name || 'Admin' }));
+    }
+
+    setSuggestionRecipientOptions(options);
+    setSuggestionRecipientId('');
+  }, [supabase]);
+
+  useEffect(() => {
+    loadSuggestionRecipients(suggestionRecipientRole);
+  }, [suggestionRecipientRole, loadSuggestionRecipients]);
+
+  const handleSendSuggestion = async () => {
+    if (!suggestionRecipientId || !suggestionMessage.trim()) {
+      toast.error('Please choose a recipient and write a message.');
+      return;
+    }
+    setSendingSuggestion(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSendingSuggestion(false); return; }
+
+    const { error } = await supabase.from('suggestions').insert({
+      sender_id: user.id,
+      sender_role: 'mentor',
+      recipient_id: suggestionRecipientId,
+      recipient_role: suggestionRecipientRole,
+      type: suggestionType,
+      message: suggestionMessage.trim(),
+      is_anonymous: !revealIdentity,
+    });
+
+    if (error) {
+      toast.error('Failed to send: ' + error.message);
+    } else {
+      toast.success('Sent!');
+      setSuggestionMessage('');
+      setSuggestionRecipientRole('');
+      setSuggestionRecipientId('');
+      setRevealIdentity(false);
+    }
+    setSendingSuggestion(false);
+  };
+
+  const loadReceivedSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSuggestionsLoading(false); return; }
+
+    const { data } = await supabase
+      .rpc('get_my_suggestions');
+
+    setReceivedSuggestions(data || []);
+
+    const revealedSenderIds = (data || []).filter((s: any) => !s.is_anonymous).map((s: any) => s.sender_id);
+    if (revealedSenderIds.length > 0) {
+      const { data: senders } = await supabase.from('user_profiles').select('id, full_name').in('id', revealedSenderIds);
+      const names: Record<string, string> = {};
+      (senders || []).forEach((p: any) => { names[p.id] = p.full_name || 'Unknown'; });
+      setSenderNames(names);
+    }
+    setSuggestionsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'suggestions') loadReceivedSuggestions();
+  }, [activeTab, loadReceivedSuggestions]);
+
+  const handleMarkResolved = async (id: string) => {
+    const { error } = await supabase.from('suggestions').update({ status: 'resolved' }).eq('id', id);
+    if (!error) { loadReceivedSuggestions(); }
+  };
+  const loadAttendanceForDate = useCallback(async (date: string) => {
+    setAttendanceLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setAttendanceLoading(false); return; }
+    const { data } = await supabase
+      .from('attendance')
+      .select('student_id, status')
+      .eq('mentor_id', user.id)
+      .eq('attendance_date', date);
+    const marks: Record<string, 'present' | 'absent'> = {};
+    (data || []).forEach((row) => { marks[row.student_id] = row.status; });
+    setAttendanceMarks(marks);
+    setAttendanceLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') loadAttendanceForDate(attendanceDate);
+  }, [activeTab, attendanceDate, loadAttendanceForDate]);
+
+  const handleSaveAttendance = async () => {
+    setSavingAttendance(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingAttendance(false); return; }
+
+    const rows = Object.entries(attendanceMarks).map(([student_id, status]) => ({
+      student_id,
+      mentor_id: user.id,
+      attendance_date: attendanceDate,
+      status,
+    }));
+
+    if (rows.length === 0) {
+      toast.error('Mark at least one student before saving.');
+      setSavingAttendance(false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('attendance')
+      .upsert(rows, { onConflict: 'student_id,attendance_date' });
+
+    if (error) {
+      toast.error('Failed to save attendance: ' + error.message);
+    } else {
+      toast.success(`Attendance saved for ${formatDate(attendanceDate)}!`);
+    }
+    setSavingAttendance(false);
+  };
+
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const formatTime = (t: string) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+  };
+
+  const loadPendingParentApprovals = useCallback(async () => {
+    setPendingParentApprovalsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPendingParentApprovalsLoading(false); return; }
+
+    const { data: myStudents } = await supabase
+      .from('students')
+      .select('id, name')
+      .eq('mentor_id', user.id);
+
+    const myStudentIds = (myStudents || []).map((s: any) => s.id);
+    if (myStudentIds.length === 0) {
+      setPendingParentApprovals([]);
+      setPendingParentApprovalsLoading(false);
+      return;
+    }
+
+    const { data: parents, error } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email, linked_student_id, created_at')
+      .eq('role', 'parent')
+      .eq('approved_by_mentor', false)
+      .in('linked_student_id', myStudentIds);
+
+    if (error) {
+      console.error('[MentorDashboard] Failed to load pending parent approvals:', error.message);
+    }
+
+    const nameByStudentId: Record<string, string> = {};
+    (myStudents || []).forEach((s: any) => { nameByStudentId[s.id] = s.name; });
+
+    setPendingParentApprovals(
+      (parents || []).map((p: any) => ({ ...p, student_name: nameByStudentId[p.linked_student_id] || 'your student' }))
+    );
+    setPendingParentApprovalsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadPendingParentApprovals();
+  }, [loadPendingParentApprovals]);
+
+  const handleApproveParent = async (parentId: string) => {
+    setApprovingParentId(parentId);
+    const { error } = await supabase.rpc('mentor_approve_parent', { p_parent_id: parentId });
+    if (error) {
+      toast.error('Failed to approve parent: ' + error.message);
+    } else {
+      toast.success('Parent approved! Their account is now active.');
+      setPendingParentApprovals((prev) => prev.filter((p) => p.id !== parentId));
+    }
+    setApprovingParentId(null);
+  };
+
+  const loadPendingStudentApprovals = useCallback(async () => {
+    setPendingStudentApprovalsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPendingStudentApprovalsLoading(false); return; }
+
+    const { data: students, error } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email, created_at')
+      .eq('role', 'student')
+      .eq('approval_status', 'pending')
+      .eq('mentor_id', user.id)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[MentorDashboard] Failed to load pending student approvals:', error.message);
+    }
+    setPendingStudentApprovals(students || []);
+    setPendingStudentApprovalsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadPendingStudentApprovals();
+  }, [loadPendingStudentApprovals]);
+
+  const handleApproveStudent = async (studentId: string) => {
+    setApprovingStudentId(studentId);
+    const { error } = await supabase.rpc('mentor_approve_student', { p_student_id: studentId });
+    if (error) {
+      toast.error('Failed to approve student: ' + error.message);
+    } else {
+      toast.success('Student approved! Their account is now active.');
+      setPendingStudentApprovals((prev) => prev.filter((s) => s.id !== studentId));
+    }
+    setApprovingStudentId(null);
+  };
+
+  const loadPendingCounselorApprovals = useCallback(async () => {
+    setPendingCounselorApprovalsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPendingCounselorApprovalsLoading(false); return; }
+
+    const { data: counselors, error } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email, created_at')
+      .eq('role', 'counselor')
+      .eq('approval_status', 'pending')
+      .eq('mentor_id', user.id)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[MentorDashboard] Failed to load pending counselor approvals:', error.message);
+    }
+    setPendingCounselorApprovals(counselors || []);
+    setPendingCounselorApprovalsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadPendingCounselorApprovals();
+  }, [loadPendingCounselorApprovals]);
+
+  const handleApproveCounselor = async (counselorId: string) => {
+    setApprovingCounselorId(counselorId);
+    const { error } = await supabase.rpc('mentor_approve_counselor', { p_counselor_id: counselorId });
+    if (error) {
+      toast.error('Failed to approve counselor: ' + error.message);
+    } else {
+      toast.success('Counselor approved! Their account is now active.');
+      setPendingCounselorApprovals((prev) => prev.filter((c) => c.id !== counselorId));
+    }
+    setApprovingCounselorId(null);
+  };
 
   return (
     <>
@@ -879,23 +1328,113 @@ export default function StudentDashboardContent() {
         onNeedsAttentionClick={() => setShowAttentionModal(true)}
       />
 
-      {/* Tab Navigation */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-6 overflow-x-auto">
-        {mentorTabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-600 whitespace-nowrap transition-all ${
-              activeTab === tab.id
-                ? 'bg-card text-foreground shadow-sm border border-border'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon name={tab.icon as any} size={15} variant={activeTab === tab.id ? 'solid' : 'outline'} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Parents awaiting your approval */}
+      {pendingParentApprovals.length > 0 && (
+        <div className="card-mystic p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              <Icon name="UserGroupIcon" size={18} className="text-primary" />
+              Parents Awaiting Your Approval
+            </h2>
+            <span className="text-xs font-600 px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+              {pendingParentApprovals.length} waiting
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Approving activates the parent's account immediately — please confirm this is really your
+            student's parent/guardian before approving.
+          </p>
+          <div className="flex flex-col gap-2">
+            {pendingParentApprovals.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                <div className="min-w-0">
+                  <p className="text-sm font-600 text-foreground truncate">{p.full_name || 'Unnamed parent'}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {p.email} · Parent of {p.student_name}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleApproveParent(p.id)}
+                  disabled={approvingParentId === p.id}
+                  className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-600 disabled:opacity-40 flex-shrink-0"
+                >
+                  {approvingParentId === p.id ? 'Approving…' : 'Approve'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Students awaiting your approval */}
+      {pendingStudentApprovals.length > 0 && (
+        <div className="card-mystic p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              <Icon name="UserGroupIcon" size={18} className="text-primary" />
+              Students Awaiting Your Approval
+            </h2>
+            <span className="text-xs font-600 px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+              {pendingStudentApprovals.length} waiting
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            These students signed up using your invite code. Approving activates their account immediately.
+          </p>
+          <div className="flex flex-col gap-2">
+            {pendingStudentApprovals.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                <div className="min-w-0">
+                  <p className="text-sm font-600 text-foreground truncate">{s.full_name || 'Unnamed student'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{s.email}</p>
+                </div>
+                <button
+                  onClick={() => handleApproveStudent(s.id)}
+                  disabled={approvingStudentId === s.id}
+                  className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-600 disabled:opacity-40 flex-shrink-0"
+                >
+                  {approvingStudentId === s.id ? 'Approving…' : 'Approve'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Counselors awaiting your approval */}
+      {pendingCounselorApprovals.length > 0 && (
+        <div className="card-mystic p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              <Icon name="UserGroupIcon" size={18} className="text-primary" />
+              Counselors Awaiting Your Approval
+            </h2>
+            <span className="text-xs font-600 px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+              {pendingCounselorApprovals.length} waiting
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            These counselors signed up using your invite code. Approving activates their account immediately.
+          </p>
+          <div className="flex flex-col gap-2">
+            {pendingCounselorApprovals.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                <div className="min-w-0">
+                  <p className="text-sm font-600 text-foreground truncate">{c.full_name || 'Unnamed counselor'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{c.email}</p>
+                </div>
+                <button
+                  onClick={() => handleApproveCounselor(c.id)}
+                  disabled={approvingCounselorId === c.id}
+                  className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-600 disabled:opacity-40 flex-shrink-0"
+                >
+                  {approvingCounselorId === c.id ? 'Approving…' : 'Approve'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── SCHEDULE SESSIONS TAB ─────────────────────────────────────────── */}
       {activeTab === 'calendar' && (
@@ -1016,7 +1555,7 @@ export default function StudentDashboardContent() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-700 text-foreground">{session.title}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {getStudentName(session.student_id)} · {session.meeting_time}
+                        {getStudentName(session.student_id)} · {formatTime(session.meeting_time)}
                       </p>
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <Icon name="VideoCameraIcon" size={11} className="text-primary" />
@@ -1043,6 +1582,361 @@ export default function StudentDashboardContent() {
                         <Icon name="TrashIcon" size={15} />
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── ATTENDANCE TAB ─────────────────────────────────────────────────── */}
+      {activeTab === 'attendance' && (
+        <div className="card-mystic p-5">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <Icon name="ClipboardDocumentCheckIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Daily Attendance Register</h2>
+            </div>
+            <input
+              type="date"
+              className="input-mystic w-auto"
+              value={attendanceDate}
+              onChange={(e) => setAttendanceDate(e.target.value)}
+            />
+          </div>
+
+          {dbStudents.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No students linked yet.</p>
+          ) : attendanceLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {dbStudents.map((s) => (
+                <div key={s.id} className="flex items-center justify-between p-3 rounded-xl bg-secondary/40 border border-border">
+                  <span className="text-sm font-600 text-foreground">{s.name}</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setAttendanceMarks((prev) => ({ ...prev, [s.id]: 'present' }))}
+                      className={`text-xs font-600 px-3 py-1.5 rounded-full border transition-all ${
+                        attendanceMarks[s.id] === 'present'
+                          ? 'bg-positive text-white border-positive' : 'bg-card text-muted-foreground border-border hover:border-positive hover:text-positive'
+                      }`}
+                    >
+                      Present
+                    </button>
+                    <button
+                      onClick={() => setAttendanceMarks((prev) => ({ ...prev, [s.id]: 'absent' }))}
+                      className={`text-xs font-600 px-3 py-1.5 rounded-full border transition-all ${
+                        attendanceMarks[s.id] === 'absent'
+                          ? 'bg-negative text-white border-negative' : 'bg-card text-muted-foreground border-border hover:border-negative hover:text-negative'
+                      }`}
+                    >
+                      Absent
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <button
+                className="btn-primary self-start mt-3"
+                onClick={handleSaveAttendance}
+                disabled={savingAttendance}
+              >
+                {savingAttendance ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Saving...</> : <><Icon name="CheckIcon" size={15} /> Save Attendance</>}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── PARENT ACTIVITIES TAB ─────────────────────────────────────────── */}
+      {activeTab === 'parent-activities' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="SparklesIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Post an Activity for Parents</h2>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Title <span className="text-negative">*</span></label>
+                <input
+                  className="input-mystic"
+                  placeholder="e.g. 20-Minute Family Gratitude Game"
+                  value={activityForm.title}
+                  onChange={(e) => setActivityForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Description <span className="text-negative">*</span></label>
+                <textarea
+                  className="input-mystic min-h-[80px] resize-none"
+                  placeholder="Describe the activity or game for the parent and child to do together..."
+                  value={activityForm.description}
+                  onChange={(e) => setActivityForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Type</label>
+                <select
+                  className="input-mystic"
+                  value={activityForm.activity_type}
+                  onChange={(e) => setActivityForm((f) => ({ ...f, activity_type: e.target.value as 'task' | 'game' }))}
+                >
+                  <option value="task">Task</option>
+                  <option value="game">Fun Game</option>
+                </select>
+              </div>
+              <button className="btn-primary self-start" onClick={handlePostActivity} disabled={postingActivity}>
+                {postingActivity ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Posting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Post Activity</>}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="ClipboardDocumentListIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Posted Activities</h2>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {parentActivities.length} total
+              </span>
+            </div>
+            {activitiesLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : parentActivities.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No activities posted yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {parentActivities.map((a) => (
+                  <div key={a.id} className="flex items-start gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-sm font-700 text-foreground">{a.title}</span>
+                        <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${a.activity_type === 'game' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                          {a.activity_type === 'game' ? 'Fun Game' : 'Task'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-foreground/80 leading-relaxed">{a.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{activityResponseCounts[a.id] || 0} parent response(s)</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteActivity(a.id)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
+                    >
+                      <Icon name="TrashIcon" size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PROGRAMS & EVENTS TAB ─────────────────────────────────────────── */}
+      {activeTab === 'programs' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="MegaphoneIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">Post a Program or Event</h2>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Visible to students, parents, counselors, and schools. A link and a file are both optional.
+            </p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Title <span className="text-negative">*</span></label>
+                <input
+                  className="input-mystic"
+                  placeholder="e.g. Live Confidence-Building Session"
+                  value={programForm.title}
+                  onChange={(e) => setProgramForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Description <span className="text-negative">*</span></label>
+                <textarea
+                  className="input-mystic min-h-[80px] resize-none"
+                  placeholder="Describe the program or event..."
+                  value={programForm.description}
+                  onChange={(e) => setProgramForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-600 text-foreground mb-1.5">Date (optional)</label>
+                  <input
+                    type="date"
+                    className="input-mystic"
+                    value={programForm.program_date}
+                    onChange={(e) => setProgramForm((f) => ({ ...f, program_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-600 text-foreground mb-1.5">Link (optional — e.g. for an online session)</label>
+                  <input
+                    className="input-mystic"
+                    placeholder="https://meet.jit.si/..."
+                    value={programForm.external_link}
+                    onChange={(e) => setProgramForm((f) => ({ ...f, external_link: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">Attach a brochure/poster (optional)</label>
+                <div className="flex items-center gap-2">
+                  <label className="btn-ghost text-xs py-1.5 px-3 cursor-pointer">
+                    <Icon name="PaperClipIcon" size={12} /> {programFile ? programFile.name : 'Choose File'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => setProgramFile(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  {programFile && (
+                    <button className="btn-ghost text-xs py-1.5 px-2" onClick={() => setProgramFile(null)}>Clear</button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">PDF, JPG, or PNG · max 2MB</p>
+                <p className="text-xs text-muted-foreground mt-1">PDF, JPG, or PNG · max 2MB</p>
+              </div>
+              <button className="btn-primary self-start" onClick={handlePostProgram} disabled={postingProgram}>
+                {postingProgram ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Posting...</> : <><Icon name="MegaphoneIcon" size={15} /> Post Program</>}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="ClipboardDocumentListIcon" size={18} className="text-primary" />
+              <h2 className="text-base font-700 text-foreground">All Programs & Events</h2>
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {programs.length} total
+              </span>
+            </div>
+            {programsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : programs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No programs posted yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {programs.map((p) => (
+                  <div key={p.id} className="flex items-start gap-3 p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-sm font-700 text-foreground">{p.title}</span>
+                        <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${p.posted_by_role === 'school' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                          {p.posted_by_role === 'school' ? 'School' : 'Mentor'}: {posterNames[p.posted_by] || '...'}
+                        </span>
+                        {p.program_date && (
+                          <span className="text-xs text-muted-foreground">{formatDate(p.program_date)}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground/80 leading-relaxed">{p.description}</p>
+                      <div className="flex items-center gap-3 mt-2">
+                        {p.external_link && (
+                          <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                            <Icon name="LinkIcon" size={12} /> Open Link
+                          </a>
+                        )}
+                        {p.file_url && (
+                          <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                            <Icon name="DocumentIcon" size={12} /> {p.file_name}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    {p.posted_by === currentUserId && (
+                      <button
+                        onClick={() => handleDeleteProgram(p.id)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors flex-shrink-0"
+                      >
+                        <Icon name="TrashIcon" size={15} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SUGGESTION PORTAL TAB ─────────────────────────────────────────── */}
+      {activeTab === 'suggestions' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="PaperAirplaneIcon" size={18} className="text-primary" />
+              Send a Suggestion, Feedback, or Query
+            </h2>
+            <div className="flex flex-col gap-3">
+              <select className="input-mystic" value={suggestionRecipientRole} onChange={(e) => setSuggestionRecipientRole(e.target.value)}>
+                <option value="">Send to...</option>
+                {MENTOR_CAN_SEND_TO.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              {suggestionRecipientRole && (
+                <select className="input-mystic" value={suggestionRecipientId} onChange={(e) => setSuggestionRecipientId(e.target.value)}>
+                  <option value="">Choose a specific person...</option>
+                  {suggestionRecipientOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              )}
+              <select className="input-mystic" value={suggestionType} onChange={(e) => setSuggestionType(e.target.value as any)}>
+                <option value="suggestion">Suggestion</option>
+                <option value="feedback">Feedback</option>
+                <option value="query">Query</option>
+              </select>
+              <textarea
+                className="input-mystic min-h-[80px] resize-none"
+                placeholder="Write your message..."
+                value={suggestionMessage}
+                onChange={(e) => setSuggestionMessage(e.target.value)}
+              />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={revealIdentity} onChange={(e) => setRevealIdentity(e.target.checked)} className="w-4 h-4 rounded border-border" />
+                <span className="text-sm text-foreground">Reveal my identity to the recipient (otherwise sent anonymously)</span>
+              </label>
+              <button className="btn-primary self-start" onClick={handleSendSuggestion} disabled={sendingSuggestion}>
+                {sendingSuggestion ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="InboxIcon" size={18} className="text-primary" />
+              Received
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {receivedSuggestions.length} total
+              </span>
+            </h2>
+            {suggestionsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : receivedSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Nothing received yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {receivedSuggestions.map((s) => (
+                  <div key={s.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-xs font-600 text-primary">
+                        {s.is_anonymous ? `Anonymous ${s.sender_role}` : (senderNames[s.sender_id] || s.sender_role)}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-card border border-border text-muted-foreground">{s.type}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${s.status === 'resolved' ? 'bg-positive/10 text-positive border-positive/20' : 'bg-muted text-muted-foreground border-border'}`}>{s.status}</span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{s.message}</p>
+                    {s.status !== 'resolved' && (
+                      <button className="btn-ghost text-xs py-1 px-3 mt-2" onClick={() => handleMarkResolved(s.id)}>
+                        Mark as Resolved
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1088,9 +1982,11 @@ export default function StudentDashboardContent() {
           {/* Search + Filter + Sort */}
           <div className="flex flex-col sm:flex-row gap-3 mb-5">
             <div className="relative flex-1">
-              <Icon name="MagnifyingGlassIcon" size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <div className="absolute left-3.5 inset-y-0 flex items-center pointer-events-none">
+                <Icon name="MagnifyingGlassIcon" size={17} className="text-muted-foreground" />
+              </div>
               <input
-                className="input-mystic pl-10"
+                className="input-mystic !pl-10"
                 placeholder="Search by name, grade, or pillar..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -1267,43 +2163,266 @@ export default function StudentDashboardContent() {
             </div>
           </div>
 
-          {/* Feedback from Students */}
-          <div className="card-mystic p-5">
-            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
-              <Icon name="ChatBubbleLeftRightIcon" size={18} className="text-primary" />
-              Feedback from Students
-              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
-                {studentFeedback.length} total
-              </span>
-            </h2>
-            {studentFeedback.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No student feedback yet.</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {studentFeedback.map((fb, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-secondary/40 border border-border">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs text-muted-foreground">{getStudentName(fb.student_id)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {fb.created_at ? formatDate(fb.created_at) : ''}
-                      </span>
+          {/* Appreciation Wall — student names ARE shown here, students opt into this when they write one */}
+          {(() => {
+            const appreciations = (studentFeedback as any[])
+              .filter((f) => f.appreciation_note && f.appreciation_note.trim())
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            return (
+              <div className="card-mystic p-5">
+                <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+                  <Icon name="SparklesIcon" size={18} className="text-amber-400" />
+                  Appreciation Wall
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                    {appreciations.length} total
+                  </span>
+                </h2>
+                {appreciations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">No shoutouts yet — when a student sends one, it'll show up here with their name.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {appreciations.map((a: any) => {
+                      const student = dbStudents.find((s) => s.id === a.student_id);
+                      return (
+                        <div key={a.id} className="p-3 rounded-xl bg-amber-50/10 border border-amber-400/30">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-700 text-amber-400">{student ? student.name : 'A Student'}</span>
+                            <span className="text-xs text-muted-foreground">{formatDate(a.created_at)}</span>
+                          </div>
+                          <p className="text-sm text-foreground/80 leading-relaxed">"{a.appreciation_note}"</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Past Reflections & Student Feedback — nothing shown until a week or date range is picked */}
+          {reflectionsLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : (() => {
+            const getWeekStart = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - x.getDay()); return x; };
+            const recentWeeks = Array.from({ length: 12 }, (_, i) => {
+              const ws = getWeekStart(new Date());
+              ws.setDate(ws.getDate() - i * 7);
+              return ws.toISOString().split('T')[0];
+            });
+            const weekRangeMs = (wk: string) => {
+              const start = new Date(wk).getTime();
+              return { start, end: start + 7 * 86400000 };
+            };
+            const avg = (arr: any[], key: string) => arr.length ? arr.reduce((s, x) => s + (Number(x[key]) || 0), 0) / arr.length : 0;
+
+            const activeWeekRange = reflectionViewMode === 'calendar' && selectedReflectionWeek ? weekRangeMs(selectedReflectionWeek) : null;
+            const fromTs = reflectionFromDate ? new Date(reflectionFromDate).getTime() : null;
+            const toTs = reflectionToDate ? new Date(reflectionToDate).getTime() + 86400000 : null;
+            const isActive = reflectionViewMode === 'calendar' ? !!activeWeekRange : reflectionRangeSubmitted;
+
+            const reflectionsInScope = !isActive ? [] : (reflections as any[]).filter((r) => {
+              const d = new Date(r.created_at).getTime();
+              if (activeWeekRange) return d >= activeWeekRange.start && d < activeWeekRange.end;
+              const fromOk = fromTs === null || d >= fromTs;
+              const toOk = toTs === null || d <= toTs;
+              return fromOk && toOk;
+            });
+
+            const feedbackInScope = !isActive ? [] : (studentFeedback as any[]).filter((f) => {
+              const d = new Date(f.created_at).getTime();
+              if (activeWeekRange) return d >= activeWeekRange.start && d < activeWeekRange.end;
+              const fromOk = fromTs === null || d >= fromTs;
+              const toOk = toTs === null || d <= toTs;
+              return fromOk && toOk;
+            });
+
+            const avgImpact = avg(reflectionsInScope, 'impact_score');
+            const avgConfidence = avg(reflectionsInScope, 'confidence_score');
+            const avgPreparedness = avg(reflectionsInScope, 'preparedness_score');
+            const avgHelped = avg(reflectionsInScope, 'students_helped_count');
+
+            const avgInteraction = avg(feedbackInScope, 'mentor_interaction_score');
+            const avgListening = avg(feedbackInScope, 'active_listening_score');
+            const avgClarity = avg(feedbackInScope, 'teaching_clarity_score');
+            const avgSafety = avg(feedbackInScope, 'emotional_safety_score');
+            const avgIndependence = avg(feedbackInScope, 'independence_score');
+
+            const writtenNotes = [
+              ...reflectionsInScope.filter((r: any) => r.reflection_text).map((r: any) => ({ date: r.created_at, label: 'Your reflection', text: r.reflection_text })),
+              ...feedbackInScope.filter((f: any) => f.fruitful_comments).map((f: any) => ({ date: f.created_at, label: 'Student comment', text: f.fruitful_comments })),
+              ...feedbackInScope.filter((f: any) => f.help_needed_comments).map((f: any) => ({ date: f.created_at, label: 'Student — needs help with', text: f.help_needed_comments })),
+            ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+            return (
+              <div className="card-mystic p-5">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                  <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+                    <Icon name="ClockIcon" size={18} className="text-primary" />
+                    Past Reflections &amp; Feedback
+                  </h2>
+                  <div className="flex gap-1 p-1 rounded-lg bg-secondary border border-border">
+                    <button
+                      onClick={() => setReflectionViewMode('calendar')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-600 transition-colors ${
+                        reflectionViewMode === 'calendar' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
+                      }`}
+                    >
+                      By Week
+                    </button>
+                    <button
+                      onClick={() => setReflectionViewMode('range')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-600 transition-colors ${
+                        reflectionViewMode === 'range' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
+                      }`}
+                    >
+                      By Date Range
+                    </button>
+                  </div>
+                </div>
+
+                {reflectionViewMode === 'calendar' ? (
+                  <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+                    {recentWeeks.map((wk) => (
+                      <button
+                        key={wk}
+                        onClick={() => setSelectedReflectionWeek(wk)}
+                        className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-600 transition-colors ${
+                          wk === selectedReflectionWeek
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-secondary/40 text-muted-foreground border-border hover:border-primary/40'
+                        }`}
+                      >
+                        Week of {formatDate(wk)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-end gap-3 mb-4 p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div>
+                      <label className="block text-xs font-600 text-muted-foreground mb-1">From</label>
+                      <input
+                        type="date"
+                        className="input-mystic text-sm py-1.5"
+                        value={reflectionFromDate}
+                        onChange={(e) => setReflectionFromDate(e.target.value)}
+                      />
                     </div>
-                    <div className="flex gap-4 text-xs text-muted-foreground mb-1.5">
-                      <span>Interaction: {'⭐'.repeat(fb.mentor_interaction_score || 0)}</span>
-                      <span>Listening: {'⭐'.repeat(fb.active_listening_score || 0)}</span>
-                      <span>Clarity: {'⭐'.repeat(fb.teaching_clarity_score || 0)}</span>
+                    <div>
+                      <label className="block text-xs font-600 text-muted-foreground mb-1">To</label>
+                      <input
+                        type="date"
+                        className="input-mystic text-sm py-1.5"
+                        value={reflectionToDate}
+                        onChange={(e) => setReflectionToDate(e.target.value)}
+                      />
                     </div>
-                    {fb.fruitful_comments && (
-                      <p className="text-sm text-foreground/80 leading-relaxed">{fb.fruitful_comments}</p>
-                    )}
-                    {fb.help_needed_comments && (
-                      <p className="text-xs text-warning mt-1">Needs help with: {fb.help_needed_comments}</p>
+                    <button
+                      className="btn-primary text-xs py-1.5 px-4"
+                      disabled={!reflectionFromDate || !reflectionToDate}
+                      onClick={() => setReflectionRangeSubmitted(true)}
+                    >
+                      Show Reflections
+                    </button>
+                    {(reflectionFromDate || reflectionToDate) && (
+                      <button
+                        className="btn-ghost text-xs py-1.5 px-3"
+                        onClick={() => { setReflectionFromDate(''); setReflectionToDate(''); setReflectionRangeSubmitted(false); }}
+                      >
+                        Clear
+                      </button>
                     )}
                   </div>
-                ))}
+                )}
+
+                {!isActive ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    {reflectionViewMode === 'calendar' ? 'Pick a week above to see reflections & feedback.' : 'Pick a "From" and "To" date, then click "Show Reflections."'}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-5">
+                    <div>
+                      <h3 className="text-sm font-700 text-foreground mb-1">Your Reflections</h3>
+                      <p className="text-xs text-muted-foreground mb-2">Average across {reflectionsInScope.length} submission{reflectionsInScope.length !== 1 ? 's' : ''}</p>
+                      {reflectionsInScope.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No reflections in this period.</p>
+                      ) : (
+                        <table className="w-full text-xs border-collapse max-w-sm">
+                          <tbody>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Impact</td>
+                              <td className="py-2 text-foreground/80">{avgImpact.toFixed(1)}/10</td>
+                            </tr>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Confidence</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgConfidence))} <span className="text-muted-foreground">({avgConfidence.toFixed(1)})</span></td>
+                            </tr>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Preparedness</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgPreparedness))} <span className="text-muted-foreground">({avgPreparedness.toFixed(1)})</span></td>
+                            </tr>
+                            <tr>
+                              <td className="py-2 pr-3 text-muted-foreground">Students Helped (avg)</td>
+                              <td className="py-2 text-foreground/80">{avgHelped.toFixed(1)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-700 text-foreground mb-1">Student Feedback</h3>
+                      <p className="text-xs text-muted-foreground mb-2">Average across {feedbackInScope.length} response{feedbackInScope.length !== 1 ? 's' : ''}, all students</p>
+                      {feedbackInScope.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No feedback in this period.</p>
+                      ) : (
+                        <table className="w-full text-xs border-collapse max-w-sm">
+                          <tbody>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Interaction</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgInteraction))} <span className="text-muted-foreground">({avgInteraction.toFixed(1)})</span></td>
+                            </tr>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Listening</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgListening))} <span className="text-muted-foreground">({avgListening.toFixed(1)})</span></td>
+                            </tr>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Clarity</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgClarity))} <span className="text-muted-foreground">({avgClarity.toFixed(1)})</span></td>
+                            </tr>
+                            <tr className="border-b border-border/50">
+                              <td className="py-2 pr-3 text-muted-foreground">Emotional Safety</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgSafety))} <span className="text-muted-foreground">({avgSafety.toFixed(1)})</span></td>
+                            </tr>
+                            <tr>
+                              <td className="py-2 pr-3 text-muted-foreground">Independence</td>
+                              <td className="py-2 text-amber-400">{'⭐'.repeat(Math.round(avgIndependence))} <span className="text-muted-foreground">({avgIndependence.toFixed(1)})</span></td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+
+                    {writtenNotes.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-700 text-foreground mb-2">Written Comments</h3>
+                        <div className="flex flex-col gap-2">
+                          {writtenNotes.map((n, idx) => (
+                            <div key={idx} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-600 text-primary">{n.label}</span>
+                                <span className="text-xs text-muted-foreground">{formatDate(n.date)}</span>
+                              </div>
+                              <p className="text-sm text-foreground/80 leading-relaxed">{n.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Submit Reflection */}
           <div className="card-mystic p-5">
@@ -1326,6 +2445,54 @@ export default function StudentDashboardContent() {
                   <span>1 — Minimal</span><span>10 — Exceptional</span>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">
+                  How many students did you actively help this week?
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  className="input-mystic w-32"
+                  value={reflectionForm.students_helped_count}
+                  onChange={(e) => setReflectionForm((f) => ({ ...f, students_helped_count: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">
+                  How confident did you feel in this week's sessions?
+                </label>
+                <div className="flex gap-1.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setReflectionForm((f) => ({ ...f, confidence_score: s }))}
+                    >
+                      <Icon name="StarIcon" size={22} variant={s <= reflectionForm.confidence_score ? 'solid' : 'outline'} className={s <= reflectionForm.confidence_score ? 'text-amber-400' : 'text-muted-foreground'} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-600 text-foreground mb-1.5">
+                  How prepared did you feel for this week's sessions?
+                </label>
+                <div className="flex gap-1.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setReflectionForm((f) => ({ ...f, preparedness_score: s }))}
+                    >
+                      <Icon name="StarIcon" size={22} variant={s <= reflectionForm.preparedness_score ? 'solid' : 'outline'} className={s <= reflectionForm.preparedness_score ? 'text-amber-400' : 'text-muted-foreground'} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">
                   Reflection Notes <span className="text-negative">*</span>
@@ -1346,32 +2513,6 @@ export default function StudentDashboardContent() {
               </button>
             </div>
           </div>
-
-          {/* Past Reflections */}
-          {reflectionsLoading ? (
-            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
-          ) : reflections.length > 0 ? (
-            <div className="card-mystic p-5">
-              <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
-                <Icon name="ClockIcon" size={18} className="text-primary" />
-                Past Reflections
-              </h2>
-              <div className="flex flex-col gap-3">
-                {reflections.slice(0, 5).map((r) => (
-                  <div key={r.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-xs text-muted-foreground">Week of {formatDate(r.week_start)}</p>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-600 text-primary">Impact: {r.impact_score}/10</span>
-                        <StarDisplay value={Math.round(r.impact_score / 2)} />
-                      </div>
-                    </div>
-                    <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">{r.reflection_text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       )}
 

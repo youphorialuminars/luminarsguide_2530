@@ -359,20 +359,6 @@ export default function NewSessionContent() {
 
       if (sessionError) throw sessionError;
 
-      // 3. Insert tasks into student_tasks table
-      const taskList: string[] = analysis.taskList || [];
-      if (taskList.length > 0 && sessionRow) {
-        const taskInserts = taskList.map((taskDesc: string, idx: number) => ({
-          student_id: selectedStudentId,
-          mentor_id: mentorId,
-          task_description: taskDesc,
-          priority_rating: idx < 2 ? 3 : idx < 4 ? 2 : 1,
-          status: 'Pending',
-          deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        }));
-        await supabase.from('student_tasks').insert(taskInserts);
-      }
-
       // 4. Update student stats
       await supabase
         .from('students')
@@ -383,7 +369,7 @@ export default function NewSessionContent() {
         })
         .eq('id', selectedStudentId);
 
-      toast.success('Analysis generated and tasks assigned!');
+      toast.success('Analysis generated! Review and assign tasks on the next page.');
       router.push(`/student-analysis-history?studentId=${selectedStudentId}&newSession=true`);
     } catch (err: any) {
       console.error('Session submit error:', err);

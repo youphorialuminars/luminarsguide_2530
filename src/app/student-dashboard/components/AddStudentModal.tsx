@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
@@ -25,9 +25,60 @@ const GRADES = [
   'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
 ];
 
+// ─── Mic Button ────────────────────────────────────────────────────────────
+function MicButton({ onResult }: { onResult: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice input is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript + ' ';
+      }
+      onResult(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      toast.error('Voice input error. Please try again.');
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggleListening}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+        listening ? 'bg-negative text-white animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'
+      }`}
+      title={listening ? 'Stop recording' : 'Start voice input'}
+    >
+      <Icon name={listening ? 'StopIcon' : 'MicrophoneIcon'} size={15} />
+    </button>
+  );
+}
+
 export default function AddStudentModal({ onClose, onAdd }: AddStudentModalProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const { register, handleSubmit, formState: { errors } } = useForm<AddStudentForm>();
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<AddStudentForm>();
 
   const onSubmit = async (data: AddStudentForm) => {
     setIsLoading(true);

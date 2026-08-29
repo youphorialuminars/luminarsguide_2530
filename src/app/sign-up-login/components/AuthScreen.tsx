@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -30,7 +30,7 @@ function formatErrorMessage(error) {
 }
 
 type AuthTab = 'login' | 'signup' | 'reset';
-type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school';
+type UserRole = 'mentor' | 'student' | 'parent' | 'counselor' | 'school' | 'admin';
 
 // ─── Visible Error Banner ──────────────────────────────────────────────────────
 interface SupabaseErrorBannerProps {
@@ -44,9 +44,6 @@ function SupabaseErrorBanner({ message, code, onDismiss }: SupabaseErrorBannerPr
     <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border-2 border-red-500/50 text-red-400 animate-fade-in">
       <Icon name="ExclamationTriangleIcon" size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-700 text-red-400 mb-0.5">
-          {code ? `Supabase Error ${code}` : 'Supabase Error'}
-        </p>
         <p className="text-xs text-red-300 break-words leading-relaxed">{message}</p>
       </div>
       <button
@@ -68,6 +65,7 @@ interface LoginForm {
 
 interface SignupForm {
   fullName: string;
+  codename: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -76,6 +74,7 @@ interface SignupForm {
   parentLinkCode: string;
   counselorInviteCode: string;
   schoolInviteCode: string;
+  adminInviteCode: string;
 }
 
 interface ResetForm {
@@ -111,22 +110,10 @@ const onSubmit = async (data: LoginForm) => {
       if (error) {
   console.error('[SignIn] auth.signInWithPassword error', error);
 
-  // 1. Check if the error is ugly HTML or a connection failure
-  let cleanMessage = error.message || "An error occurred";
-  if (
-    cleanMessage.includes("<!DOCTYPE") || 
-    cleanMessage.includes("<html") || 
-    cleanMessage.includes("Failed to fetch") ||
-    cleanMessage.length > 150
-  ) {
-    cleanMessage = "Invalid entry. Please check your details and try again.";
-  }
+  // Always show a simple, friendly message — never technical details or status codes
+  const cleanMessage = "Incorrect email or password. Please try again.";
 
-  // 2. Put the clean message on the screen using your specific commands
-  setSupabaseError({
-    message: cleanMessage,
-    code: error.status?.toString(),
-  });
+  setSupabaseError({ message: cleanMessage });
   setError('password', { message: cleanMessage });
   setIsLoading(false);
   return;
@@ -324,11 +311,11 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
     setIsLoading(true);
     setSupabaseError(null);
     try {
-      // For student: validate mentor invite code (LLL-DDDDDD) and resolve mentor UUID
+      // For student or counselor: validate mentor invite code (LLL-DDDDDD) and resolve mentor UUID
       let linkedStudentId: string | null = null;
       let linkedMentorId: string | null = null;
 
-      if (data.role === 'student') {
+      if (data.role === 'student' || data.role === 'counselor') {
         const code = data.inviteCode?.trim().toUpperCase() || '';
         if (!code || !validateInviteCode(code)) {
           setError('inviteCode', { message: 'Please enter a valid invite code in format ABC-123456' });
@@ -374,11 +361,8 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           return;
         }
         try {
-          const { data: studentRow, error: plcErr } = await supabase
-            .from('students')
-            .select('id, parent_link_code, mentor_id')
-            .eq('parent_link_code', code)
-            .maybeSingle();
+          const { data: foundStudentId, error: plcErr } = await supabase
+            .rpc('lookup_parent_link_code', { p_code: code });
 
           if (plcErr) {
             console.error('[SignUp] parent link code lookup error:', plcErr);
@@ -387,12 +371,12 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             setIsLoading(false);
             return;
           }
-          if (!studentRow) {
+          if (!foundStudentId) {
             setError('parentLinkCode', { message: 'Invalid Parent Link Code. Ask your child to generate one from their dashboard.' });
             setIsLoading(false);
             return;
           }
-          parentLinkedStudentId = studentRow.id;
+          parentLinkedStudentId = foundStudentId;
         } catch (plcEx: any) {
           console.error('[SignUp] parent link code exception:', plcEx);
           setSupabaseError({ message: `Parent link code exception: ${plcEx?.message || String(plcEx)}` });
@@ -508,6 +492,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           options: {
             data: {
               full_name: data.fullName,
+              codename: data.codename,
               role: roleValue,
               mentor_code: mentorCode,
               mentor_id: linkedMentorId || null,
@@ -515,8 +500,9 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               linked_student_id: parentLinkedStudentId || null,
               counselor_id: linkedCounselorId || null,
               school_id: linkedSchoolId || null,
+              adminInviteCode: data.role === 'admin' ? (data.adminInviteCode?.trim().toUpperCase() || null) : null,
             },
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: `${window.location.origin}/sign-up-login`,
           },
         });
 
@@ -563,6 +549,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         id: authData.user.id,
         email: data.email,
         full_name: data.fullName,
+        codename: data.codename,
         role: roleValue,
         mentor_code: mentorCode,
         mentor_id: linkedMentorId || null,
@@ -865,6 +852,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
             { value: 'parent', label: 'Parent', icon: 'HomeIcon', desc: 'I have a parent link code' },
             { value: 'counselor', label: 'Counselor', icon: 'ShieldCheckIcon', desc: 'I supervise mentors' },
             { value: 'school', label: 'School', icon: 'BuildingLibraryIcon', desc: 'Institutional account' },
+            { value: 'admin', label: 'Admin', icon: 'ShieldExclamationIcon', desc: 'Oversight across schools' },
           ].map((opt) => (
             <label
               key={opt.value}
@@ -904,6 +892,20 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         />
         {errors.fullName && (
           <p className="text-xs text-negative mt-1">{errors.fullName.message}</p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-600 text-foreground mb-1.5">
+          Codename <span className="text-negative">*</span>
+        </label>
+        <input
+          className="input-mystic"
+          placeholder="Pick a fun codename — a character, a favorite dish, anything!"
+          {...register('codename', { required: 'Codename is required' })}
+        />
+        {errors.codename && (
+          <p className="text-xs text-negative mt-1">{errors.codename.message}</p>
         )}
       </div>
 
@@ -978,14 +980,15 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         </div>
       </div>
 
-      {/* Invite Code — only for student */}
-      {selectedRole === 'student' && (
+      {/* Invite Code — for student or counselor (both link to a mentor who will approve them) */}
+      {(selectedRole === 'student' || selectedRole === 'counselor') && (
         <div className="animate-fade-in">
           <label className="block text-sm font-600 text-foreground mb-1.5">
             Mentor Invite Code <span className="text-negative">*</span>
           </label>
           <p className="text-xs text-muted-foreground mb-2">
-            Enter the code provided by your mentor (format: ABC-123456).
+            Enter the code provided by your mentor (format: ABC-123456). Your mentor will need to approve
+            your account before you can log in.
           </p>
           <div className="relative">
             <input
@@ -993,9 +996,9 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               placeholder="e.g. ABC-123456"
               maxLength={10}
               {...register('inviteCode', {
-                required: selectedRole === 'student' ? 'Invite code is required' : false,
+                required: (selectedRole === 'student' || selectedRole === 'counselor') ? 'Invite code is required' : false,
                 validate: (val) => {
-                  if (selectedRole !== 'student') return true;
+                  if (selectedRole !== 'student' && selectedRole !== 'counselor') return true;
                   if (!val || !validateInviteCode(val.trim().toUpperCase())) {
                     return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
                   }
@@ -1011,6 +1014,43 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           </div>
           {errors.inviteCode && (
             <p className="text-xs text-negative mt-1">{errors.inviteCode.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Admin Invite Code — only for admin */}
+      {selectedRole === 'admin' && (
+        <div className="animate-fade-in">
+          <label className="block text-sm font-600 text-foreground mb-1.5">
+            Admin Invite Code <span className="text-negative">*</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Enter the one-time code an existing admin generated and sent you (format: ABC-123456).
+          </p>
+          <div className="relative">
+            <input
+              className="input-mystic pr-10 font-mono tracking-widest uppercase"
+              placeholder="e.g. ABC-123456"
+              maxLength={10}
+              {...register('adminInviteCode', {
+                required: selectedRole === 'admin' ? 'Admin invite code is required' : false,
+                validate: (val) => {
+                  if (selectedRole !== 'admin') return true;
+                  if (!val || !validateInviteCode(val.trim().toUpperCase())) {
+                    return 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)';
+                  }
+                  return true;
+                },
+              })}
+            />
+            <Icon
+              name="KeyIcon"
+              size={16}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
+          {errors.adminInviteCode && (
+            <p className="text-xs text-negative mt-1">{errors.adminInviteCode.message}</p>
           )}
         </div>
       )}
@@ -1176,7 +1216,7 @@ function ResetPasswordForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => voi
     setSupabaseError(null);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/sign-up-login`,
       });
       if (error) {
         console.error('[ResetPassword] resetPasswordForEmail error:', error);
@@ -1263,8 +1303,124 @@ function ResetPasswordForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => voi
   );
 }
 
+// ─── Set New Password (shown when a password-recovery link lands here) ──────
+function SetNewPasswordForm() {
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const supabase = createClient();
+
+  const redirectToDashboard = async (userId: string) => {
+    let role = 'mentor';
+    try {
+      const { data } = await supabase.from('user_profiles').select('role').eq('id', userId).single();
+      if (data?.role) role = data.role;
+    } catch {}
+    document.cookie = `luminar_role=${role}; path=/; max-age=604800; SameSite=None; Secure`;
+    if (role === 'student_parent' || role === 'student') {
+      window.location.href = '/student-parent-dashboard';
+    } else if (role === 'parent') {
+      window.location.href = '/parents-hub';
+    } else if (role === 'counselor') {
+      window.location.href = '/counselor-dashboard';
+    } else if (role === 'school') {
+      window.location.href = '/school-dashboard';
+    } else if (role === 'admin') {
+      window.location.href = '/admin-dashboard';
+    } else {
+      window.location.href = '/student-dashboard';
+    }
+  };
+
+  const handleSetNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordError(error.message || 'Failed to update password.');
+        setSubmitting(false);
+        return;
+      }
+      toast.success('Password updated!');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await redirectToDashboard(session.user.id);
+      } else {
+        window.location.href = '/sign-up-login';
+      }
+    } catch (err: any) {
+      setPasswordError(err?.message || 'Failed to update password.');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in">
+      <div className="mb-6">
+        <h2 className="text-2xl font-700 text-foreground">Set a New Password</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Choose a new password for your account.
+        </p>
+      </div>
+      <form onSubmit={handleSetNewPassword} className="flex flex-col gap-4">
+        <div>
+          <label className="block text-sm font-600 text-foreground mb-1.5">New Password</label>
+          <input
+            className="input-mystic"
+            type="password"
+            placeholder="At least 6 characters"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-600 text-foreground mb-1.5">Confirm New Password</label>
+          <input
+            className="input-mystic"
+            type="password"
+            placeholder="Re-enter new password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+        </div>
+        {passwordError && <p className="text-xs text-negative">{passwordError}</p>}
+        <button type="submit" className="btn-primary w-full" disabled={submitting}>
+          {submitting ? (
+            <><Icon name="ArrowPathIcon" size={16} className="animate-spin" /> Updating...</>
+          ) : (
+            <>Set New Password</>
+          )}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function AuthScreen() {
   const [activeTab, setActiveTab] = useState<AuthTab>('login');
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const supabase = createClient();
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setRecoveryMode(true);
+      }
+    });
+    return () => { subscription.unsubscribe(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tabConfig = {
     login: { label: 'Sign In', icon: 'ArrowRightOnRectangleIcon' },
@@ -1281,11 +1437,8 @@ export default function AuthScreen() {
         <div className="absolute top-10 right-10 w-64 h-64 blob-gold opacity-30 pointer-events-none" />
         <div className="absolute bottom-20 left-5 w-80 h-80 blob-lavender opacity-20 pointer-events-none" />
 
-        <div className="flex items-center gap-3 relative z-10">
-          <AppLogo size={44} />
-          <span className="text-white font-800 text-xl tracking-tight">
-            Luminar&apos;s Guide
-          </span>
+        <div className="flex items-center justify-center relative z-10">
+          <AppLogo size={64} />
         </div>
 
         <div className="relative z-10 flex flex-col gap-6 max-w-sm">
@@ -1328,67 +1481,72 @@ export default function AuthScreen() {
       {/* Right Form Panel */}
       <div className="flex-1 flex flex-col justify-center items-center p-6 sm:p-10 bg-background overflow-y-auto">
         <div className="w-full max-w-md">
-          <div className="flex lg:hidden items-center gap-2.5 mb-8 justify-center">
-            <AppLogo size={38} />
-            <span className="font-800 text-lg text-foreground">Luminar&apos;s Guide</span>
+          <div className="flex lg:hidden items-center justify-center mb-8">
+            <AppLogo size={56} />
           </div>
 
-          {activeTab !== 'reset' && (
-            <div className="flex gap-1 p-1 rounded-xl bg-secondary mb-6 border border-border">
-              {(['login', 'signup'] as const).map((tab) => (
-                <button
-                  key={`auth-tab-${tab}`}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-600 transition-all duration-150 ${
-                    activeTab === tab
-                      ? 'bg-card text-foreground shadow-sm border border-border'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Icon name={tabConfig[tab].icon as any} size={15} />
-                  {tabConfig[tab].label}
-                </button>
-              ))}
-            </div>
-          )}
+          {recoveryMode ? (
+            <SetNewPasswordForm />
+          ) : (
+            <>
+              {activeTab !== 'reset' && (
+                <div className="flex gap-1 p-1 rounded-xl bg-secondary mb-6 border border-border">
+                  {(['login', 'signup'] as const).map((tab) => (
+                    <button
+                      key={`auth-tab-${tab}`}
+                      onClick={() => setActiveTab(tab)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-600 transition-all duration-150 ${
+                        activeTab === tab
+                          ? 'bg-card text-foreground shadow-sm border border-border'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Icon name={tabConfig[tab].icon as any} size={15} />
+                      {tabConfig[tab].label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-          {activeTab === 'reset' && (
-            <div className="mb-6">
-              <h2 className="text-2xl font-700 text-foreground">Reset Password</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                We will send a reset link to your email
-              </p>
-            </div>
-          )}
+              {activeTab === 'reset' && (
+                <div className="mb-6">
+                  <h2 className="text-2xl font-700 text-foreground">Reset Password</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    We will send a reset link to your email
+                  </p>
+                </div>
+              )}
 
-          {activeTab === 'login' && (
-            <div className="animate-fade-in">
-              <div className="mb-6">
-                <h2 className="text-2xl font-700 text-foreground">Welcome Back</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Sign in to your portal
-                </p>
-              </div>
-              <LoginForm onSwitchTab={setActiveTab} />
-            </div>
-          )}
+              {activeTab === 'login' && (
+                <div className="animate-fade-in">
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-700 text-foreground">Welcome Back</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Sign in to your portal
+                    </p>
+                  </div>
+                  <LoginForm onSwitchTab={setActiveTab} />
+                </div>
+              )}
 
-          {activeTab === 'signup' && (
-            <div className="animate-fade-in">
-              <div className="mb-6">
-                <h2 className="text-2xl font-700 text-foreground">Join Luminar&apos;s Guide</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Create your account to get started
-                </p>
-              </div>
-              <SignupForm onSwitchTab={setActiveTab} />
-            </div>
-          )}
+              {activeTab === 'signup' && (
+                <div className="animate-fade-in">
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-700 text-foreground">Join Luminar&apos;s Guide</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Create your account to get started
+                    </p>
+                  </div>
+                  <SignupForm onSwitchTab={setActiveTab} />
+                </div>
+              )}
 
-          {activeTab === 'reset' && (
-            <div className="animate-fade-in">
-              <ResetPasswordForm onSwitchTab={setActiveTab} />
-            </div>
+              {activeTab === 'reset' && (
+                <div className="animate-fade-in">
+                  <ResetPasswordForm onSwitchTab={setActiveTab} />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

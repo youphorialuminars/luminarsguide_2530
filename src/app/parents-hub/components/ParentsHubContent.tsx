@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -147,6 +147,57 @@ function AttendanceCalendarView({ records }: { records: AttendanceRecord[] }) {
   );
 }
 
+// ─── Mic Button ────────────────────────────────────────────────────────────
+function MicButton({ onResult }: { onResult: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice input is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript + ' ';
+      }
+      onResult(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      toast.error('Voice input error. Please try again.');
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggleListening}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+        listening ? 'bg-negative text-white animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'
+      }`}
+      title={listening ? 'Stop recording' : 'Start voice input'}
+    >
+      <Icon name={listening ? 'StopIcon' : 'MicrophoneIcon'} size={15} />
+    </button>
+  );
+}
+
 // ─── Main Parents Hub Dashboard ───────────────────────────────────────────────
 export default function ParentsHubContent() {
   const router = useRouter();
@@ -154,7 +205,9 @@ export default function ParentsHubContent() {
 
   const [parentProfile, setParentProfile] = useState<ParentProfile | null>(null);
   const [linkedStudent, setLinkedStudent] = useState<LinkedStudent | null>(null);
+  const [linkedStudentSchoolId, setLinkedStudentSchoolId] = useState<string | null>(null);
   const [mentorProfile, setMentorProfile] = useState<MentorProfile | null>(null);
+  const [allMentors, setAllMentors] = useState<MentorProfile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -162,8 +215,22 @@ export default function ParentsHubContent() {
   const [parentObservations, setParentObservations] = useState<ParentObservation[]>([]);
   const [parentQueries, setParentQueries] = useState<ParentQuery[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [parentActivities, setParentActivities] = useState<{ id: string; title: string; description: string; activity_type: string; created_at: string }[]>([]);
+  const [myResponses, setMyResponses] = useState<Record<string, string>>({});
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [respondingActivityId, setRespondingActivityId] = useState<string | null>(null);
+  const [responseDraft, setResponseDraft] = useState('');
+  const [submittingActivityResponse, setSubmittingActivityResponse] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'mentor' | 'action' | 'leaderboard'>('overview');
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'overview' | 'mentor' | 'action' | 'leaderboard' | 'activities' | 'programs' | 'suggestions'>(
+    (searchParams.get('tab') as any) || 'overview'
+  );
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t as any);
+  }, [searchParams]);
 
   // Observation form
   const [obsForm, setObsForm] = useState({ observation_text: '', program_experience: '' });
@@ -174,16 +241,33 @@ export default function ParentsHubContent() {
   const [submittingSuggestion, setSubmittingSuggestion] = useState(false);
 
   // Query form
-  const [queryForm, setQueryForm] = useState({ recipient_role: 'mentor\' as \'mentor\' | \'counselor', message: '' });
-  const [submittingQuery, setSubmittingQuery] = useState(false);
-
+  const [queryForm, setQueryForm] = useState<{ recipient_role: 'mentor' | 'counselor'; message: string }>({ recipient_role: 'mentor', message: '' });
+const [submittingQuery, setSubmittingQuery] = useState(false);
+  const [programs, setPrograms] = useState<{ id: string; posted_by: string; posted_by_role: string; title: string; description: string; program_date: string | null; external_link: string | null; file_url: string | null; file_name: string | null }[]>([]);
+  const [posterNames, setPosterNames] = useState<Record<string, string>>({});
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [suggestionRecipientRole, setSuggestionRecipientRole] = useState('');
+  const [suggestionRecipientOptions, setSuggestionRecipientOptions] = useState<{ id: string; name: string }[]>([]);
+  const [suggestionRecipientId, setSuggestionRecipientId] = useState('');
+  const [suggestionType, setSuggestionType] = useState<'suggestion' | 'feedback' | 'query'>('suggestion');
+  const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [revealIdentity, setRevealIdentity] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [receivedSuggestions, setReceivedSuggestions] = useState<any[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [senderNames, setSenderNames] = useState<Record<string, string>>({});
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/sign-up-login'); return; }
 
-      const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
+      let { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+      if (!profile) {
+        await new Promise((r) => setTimeout(r, 500));
+        const retry = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+        profile = retry.data;
+      }
       if (!profile || profile.role !== 'parent') { router.push('/sign-up-login'); return; }
       setParentProfile(profile);
 
@@ -192,38 +276,48 @@ export default function ParentsHubContent() {
         return;
       }
 
-      // linked_student_id is stored as TEXT (UUID string) in user_profiles
-      // Query students table using the UUID string — Postgres coerces text → uuid
-      const { data: student, error: studentErr } = await supabase
+      // Step 1: find the child's identity via the parent's one known link
+      const { data: primaryRow, error: studentErr } = await supabase
         .from('students')
-        .select('id, name, grade, mentor_id, avg_score, sessions, trend, topics')
+        .select('id, name, grade, mentor_id, avg_score, sessions, trend, topics, student_user_id')
         .eq('id', profile.linked_student_id)
         .maybeSingle();
 
       if (studentErr) {
         console.error('[ParentsHub] Failed to load linked student:', studentErr.message);
       }
-      setLinkedStudent(student ?? null);
+      setLinkedStudent(primaryRow ?? null);
 
-      if (student) {
-        // Load mentor profile using the student's mentor_id UUID
-        if (student.mentor_id) {
-          const { data: mentor, error: mentorErr } = await supabase
+      if (primaryRow) {
+        // Step 2: find EVERY students row for this same child, across all their mentors —
+        // not just the one mentor the parent's code happened to be generated under
+        const { data: allRows } = await supabase
+          .from('students')
+          .select('id, name, grade, mentor_id, avg_score, sessions, trend, topics')
+          .eq('student_user_id', primaryRow.student_user_id);
+
+        const studentRows = allRows && allRows.length > 0 ? allRows : [primaryRow];
+        const allStudentIds = studentRows.map((s) => s.id);
+        const allMentorIds = Array.from(new Set(studentRows.map((s) => s.mentor_id).filter(Boolean)));
+
+        if (allMentorIds.length > 0) {
+          const { data: mentors, error: mentorErr } = await supabase
             .from('user_profiles')
             .select('id, full_name, email, mentor_code')
-            .eq('id', student.mentor_id)
-            .maybeSingle();
+            .in('id', allMentorIds);
           if (mentorErr) {
-            console.error('[ParentsHub] Failed to load mentor profile:', mentorErr.message);
+            console.error('[ParentsHub] Failed to load mentor profiles:', mentorErr.message);
           }
-          setMentorProfile(mentor ?? null);
+          setAllMentors(mentors || []);
+          // Keep mentorProfile as the "primary" one for the summary card at the top
+          setMentorProfile((mentors || []).find((m) => m.id === primaryRow.mentor_id) || mentors?.[0] || null);
         }
 
         const [taskResult, attResult, sessResult, mfResult] = await Promise.all([
-          supabase.from('student_tasks').select('*').eq('student_id', student.id).order('created_at', { ascending: false }),
-          supabase.from('attendance').select('attendance_date, status').eq('student_id', student.id).order('attendance_date', { ascending: false }),
-          supabase.from('sessions').select('id, topic, session_date, strengths, weaknesses').eq('student_id', student.id).order('created_at', { ascending: false }).limit(5),
-          supabase.from('mentor_feedback').select('*').eq('student_id', student.id).order('created_at', { ascending: false }),
+          supabase.from('student_tasks').select('*').in('student_id', allStudentIds).order('created_at', { ascending: false }),
+          supabase.from('attendance').select('attendance_date, status').in('student_id', allStudentIds).order('attendance_date', { ascending: false }),
+          supabase.from('sessions').select('id, topic, session_date, strengths, weaknesses').in('student_id', allStudentIds).order('created_at', { ascending: false }).limit(5),
+          supabase.from('mentor_feedback').select('*').in('student_id', allStudentIds).order('created_at', { ascending: false }),
         ]);
 
         setTasks(taskResult.data || []);
@@ -273,6 +367,180 @@ export default function ParentsHubContent() {
   }, [supabase, router]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const loadParentActivities = useCallback(async () => {
+    if (allMentors.length === 0) return;
+    setActivitiesLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setActivitiesLoading(false); return; }
+
+    const mentorIds = allMentors.map((m) => m.id);
+    const { data } = await supabase
+      .from('parent_activities')
+      .select('id, title, description, activity_type, created_at')
+      .in('mentor_id', mentorIds)
+      .order('created_at', { ascending: false });
+    setParentActivities(data || []);
+
+    const { data: myResp } = await supabase
+      .from('parent_activity_responses')
+      .select('activity_id, response_text')
+      .eq('parent_id', user.id);
+    const respMap: Record<string, string> = {};
+    (myResp || []).forEach((r) => { respMap[r.activity_id] = r.response_text || 'Done'; });
+    setMyResponses(respMap);
+
+    setActivitiesLoading(false);
+  }, [supabase, allMentors]);
+
+  useEffect(() => {
+    if (activeTab === 'activities') loadParentActivities();
+  }, [activeTab, loadParentActivities]);
+
+  const handleSubmitActivityResponse = async (activityId: string) => {
+    setSubmittingActivityResponse(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSubmittingActivityResponse(false); return; }
+    const { error } = await supabase.from('parent_activity_responses').insert({
+      activity_id: activityId,
+      parent_id: user.id,
+      response_text: responseDraft.trim() || 'Done',
+    });
+    if (error) {
+      toast.error('Failed to submit: ' + error.message);
+    } else {
+      toast.success('Response submitted!');
+      setRespondingActivityId(null);
+      setResponseDraft('');
+      loadParentActivities();
+    }
+    setSubmittingActivityResponse(false);
+  };
+
+  const loadPrograms = useCallback(async () => {
+    setProgramsLoading(true);
+    let schoolId: string | null = null;
+    if (linkedStudent?.student_user_id) {
+      const { data: studentProfile } = await supabase.from('user_profiles').select('school_id').eq('id', linkedStudent.student_user_id).maybeSingle();
+      schoolId = studentProfile?.school_id || null;
+    }
+    setLinkedStudentSchoolId(schoolId);
+    const posterIds = [...allMentors.map((m: any) => m.id), schoolId].filter(Boolean);
+
+    if (posterIds.length === 0) { setPrograms([]); setProgramsLoading(false); return; }
+
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .in('posted_by', posterIds)
+      .order('created_at', { ascending: false });
+    setPrograms(data || []);
+    if (data && data.length > 0) {
+      const posterIds = Array.from(new Set(data.map((p) => p.posted_by)));
+      const { data: posters } = await supabase
+        .from('user_profiles')
+        .select('id, full_name')
+        .in('id', posterIds);
+      const names: Record<string, string> = {};
+      (posters || []).forEach((p) => { names[p.id] = p.full_name || 'Unknown'; });
+      setPosterNames(names);
+    }
+    setProgramsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'programs') loadPrograms();
+  }, [activeTab, loadPrograms]);
+
+  const PARENT_CAN_SEND_TO = ['mentor', 'counselor', 'admin'];
+
+  const loadSuggestionRecipients = useCallback(async (role: string) => {
+    if (!role) { setSuggestionRecipientOptions([]); return; }
+
+    let options: { id: string; name: string }[] = [];
+
+    if (role === 'mentor') {
+      options = allMentors.map((m: any) => ({ id: m.id, name: m.full_name || 'Mentor' }));
+    } else if (role === 'counselor') {
+      if (linkedStudent?.student_user_id) {
+        const { data: studentProfile } = await supabase.from('user_profiles').select('counselor_id').eq('id', linkedStudent.student_user_id).maybeSingle();
+        if (studentProfile?.counselor_id) {
+          const { data: counselor } = await supabase.from('user_profiles').select('id, full_name').eq('id', studentProfile.counselor_id).maybeSingle();
+          if (counselor) options = [{ id: counselor.id, name: counselor.full_name || 'Counselor' }];
+        }
+      }
+    } else if (role === 'admin') {
+      const { data: people } = await supabase.from('user_profiles').select('id, full_name').eq('role', 'admin');
+      options = (people || []).map((p: any) => ({ id: p.id, name: p.full_name || 'Admin' }));
+    }
+
+    setSuggestionRecipientOptions(options);
+    setSuggestionRecipientId('');
+  }, [supabase, allMentors, linkedStudent]);
+
+  useEffect(() => {
+    loadSuggestionRecipients(suggestionRecipientRole);
+  }, [suggestionRecipientRole, loadSuggestionRecipients]);
+
+  const handleSendSuggestion = async () => {
+    if (!suggestionRecipientId || !suggestionMessage.trim()) {
+      toast.error('Please choose a recipient and write a message.');
+      return;
+    }
+    setSendingSuggestion(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSendingSuggestion(false); return; }
+
+    const { error } = await supabase.from('suggestions').insert({
+      sender_id: user.id,
+      sender_role: 'parent',
+      recipient_id: suggestionRecipientId,
+      recipient_role: suggestionRecipientRole,
+      type: suggestionType,
+      message: suggestionMessage.trim(),
+      is_anonymous: !revealIdentity,
+    });
+
+    if (error) {
+      toast.error('Failed to send: ' + error.message);
+    } else {
+      toast.success('Sent!');
+      setSuggestionMessage('');
+      setSuggestionRecipientRole('');
+      setSuggestionRecipientId('');
+      setRevealIdentity(false);
+    }
+    setSendingSuggestion(false);
+  };
+
+  const loadReceivedSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSuggestionsLoading(false); return; }
+
+    const { data } = await supabase
+      .rpc('get_my_suggestions');
+
+    setReceivedSuggestions(data || []);
+
+    const revealedSenderIds = (data || []).filter((s: any) => !s.is_anonymous).map((s: any) => s.sender_id);
+    if (revealedSenderIds.length > 0) {
+      const { data: senders } = await supabase.from('user_profiles').select('id, full_name').in('id', revealedSenderIds);
+      const names: Record<string, string> = {};
+      (senders || []).forEach((p: any) => { names[p.id] = p.full_name || 'Unknown'; });
+      setSenderNames(names);
+    }
+    setSuggestionsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'suggestions') loadReceivedSuggestions();
+  }, [activeTab, loadReceivedSuggestions]);
+
+  const handleMarkResolved = async (id: string) => {
+    const { error } = await supabase.from('suggestions').update({ status: 'resolved' }).eq('id', id);
+    if (!error) { loadReceivedSuggestions(); }
+  };
 
   const handleSubmitObservation = async () => {
     if (!obsForm.observation_text.trim()) { toast.error('Please add your observation notes.'); return; }
@@ -368,6 +636,9 @@ export default function ParentsHubContent() {
     { id: 'overview' as const, label: "Child's Overview", icon: 'UserIcon' },
     { id: 'mentor' as const, label: 'Mentor Overview', icon: 'AcademicCapIcon' },
     { id: 'action' as const, label: 'Action Center', icon: 'BoltIcon' },
+    { id: 'activities' as const, label: 'Activities', icon: 'SparklesIcon' },
+    { id: 'programs' as const, label: 'Programs & Events', icon: 'MegaphoneIcon' },
+    { id: 'suggestions' as const, label: 'Suggestion Portal', icon: 'ChatBubbleLeftEllipsisIcon' },
     { id: 'leaderboard' as const, label: 'Leaderboard', icon: 'TrophyIcon' },
   ];
 
@@ -392,22 +663,6 @@ export default function ParentsHubContent() {
             <p className={`text-base font-800 ${tier.textColor}`}>{tier.name}</p>
           </div>
         </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="flex gap-1 p-1 rounded-xl bg-secondary border border-border mb-6 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-600 whitespace-nowrap transition-all ${
-              activeTab === tab.id ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon name={tab.icon as any} size={15} variant={activeTab === tab.id ? 'solid' : 'outline'} />
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {/* ── CHILD'S OVERVIEW TAB ─────────────────────────────────────────────── */}
@@ -468,7 +723,7 @@ export default function ParentsHubContent() {
               School Calendar
               <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700">Performance &amp; Holidays</span>
             </h2>
-            <SchoolEventsCalendar />
+            <SchoolEventsCalendar schoolId={linkedStudentSchoolId || null} />
           </div>
 
           {/* Report Card — Mentor's Feedback */}
@@ -523,6 +778,16 @@ export default function ParentsHubContent() {
             <p className="text-xs text-muted-foreground">Read-only view of your child&apos;s assigned mentor.</p>
           </div>
 
+          {allMentors.length > 1 && (
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border">
+              <p className="text-xs font-600 text-muted-foreground mb-2">Your child has {allMentors.length} mentors:</p>
+              <div className="flex flex-wrap gap-2">
+                {allMentors.map((m) => (
+                  <span key={m.id} className="text-xs font-600 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">{m.full_name}</span>
+                ))}
+              </div>
+            </div>
+          )}
           {!mentorProfile ? (
             <div className="card-mystic p-8 text-center">
               <Icon name="AcademicCapIcon" size={36} className="mx-auto mb-3 text-muted-foreground opacity-30" />
@@ -621,11 +886,17 @@ export default function ParentsHubContent() {
             <div className="flex flex-col gap-4">
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Home Progress Notes <span className="text-negative">*</span></label>
-                <textarea className="input-mystic min-h-[100px] resize-none" placeholder="Share observations about your child's progress at home..." value={obsForm.observation_text} onChange={(e) => setObsForm((f) => ({ ...f, observation_text: e.target.value }))} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[100px] resize-none flex-1" placeholder="Share observations about your child's progress at home..." value={obsForm.observation_text} onChange={(e) => setObsForm((f) => ({ ...f, observation_text: e.target.value }))} />
+                  <MicButton onResult={(text) => setObsForm((f) => ({ ...f, observation_text: (f.observation_text ? f.observation_text + ' ' : '') + text }))} />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Program Experience</label>
-                <textarea className="input-mystic min-h-[80px] resize-none" placeholder="How has the Luminar's Guide program impacted your child?" value={obsForm.program_experience} onChange={(e) => setObsForm((f) => ({ ...f, program_experience: e.target.value }))} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[80px] resize-none flex-1" placeholder="How has the Luminar's Guide program impacted your child?" value={obsForm.program_experience} onChange={(e) => setObsForm((f) => ({ ...f, program_experience: e.target.value }))} />
+                  <MicButton onResult={(text) => setObsForm((f) => ({ ...f, program_experience: (f.program_experience ? f.program_experience + ' ' : '') + text }))} />
+                </div>
               </div>
               <button className="btn-primary self-start" onClick={handleSubmitObservation} disabled={submittingObs}>
                 {submittingObs ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Submitting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Submit Observation</>}
@@ -642,7 +913,10 @@ export default function ParentsHubContent() {
             <div className="flex flex-col gap-4">
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Your Suggestion</label>
-                <textarea className="input-mystic min-h-[100px] resize-none" placeholder="Share ideas or suggestions to improve the program for your child..." value={suggestionText} onChange={(e) => setSuggestionText(e.target.value)} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[100px] resize-none flex-1" placeholder="Share ideas or suggestions to improve the program for your child..." value={suggestionText} onChange={(e) => setSuggestionText(e.target.value)} />
+                  <MicButton onResult={(text) => setSuggestionText((prev) => (prev ? prev + ' ' : '') + text)} />
+                </div>
               </div>
               <button className="btn-primary self-start" onClick={handleSubmitSuggestion} disabled={submittingSuggestion}>
                 {submittingSuggestion ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Submitting...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Submit Suggestion</>}
@@ -677,7 +951,10 @@ export default function ParentsHubContent() {
               </div>
               <div>
                 <label className="block text-sm font-600 text-foreground mb-1.5">Your Message <span className="text-negative">*</span></label>
-                <textarea className="input-mystic min-h-[100px] resize-none" placeholder={`Write your message to the ${queryForm.recipient_role}...`} value={queryForm.message} onChange={(e) => setQueryForm((f) => ({ ...f, message: e.target.value }))} />
+                <div className="flex gap-2 items-start">
+                  <textarea className="input-mystic min-h-[100px] resize-none flex-1" placeholder={`Write your message to the ${queryForm.recipient_role}...`} value={queryForm.message} onChange={(e) => setQueryForm((f) => ({ ...f, message: e.target.value }))} />
+                  <MicButton onResult={(text) => setQueryForm((f) => ({ ...f, message: (f.message ? f.message + ' ' : '') + text }))} />
+                </div>
               </div>
               <button className="btn-primary self-start" onClick={handleSubmitQuery} disabled={submittingQuery}>
                 {submittingQuery ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" /> Sending...</> : <><Icon name="PaperAirplaneIcon" size={15} /> Send Query</>}
@@ -723,6 +1000,196 @@ export default function ParentsHubContent() {
       )}
 
       {/* ── LEADERBOARD TAB ──────────────────────────────────────────────────── */}
+      {activeTab === 'activities' && (
+        <div className="card-mystic p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Icon name="SparklesIcon" size={18} className="text-primary" />
+            <h2 className="text-base font-700 text-foreground">Activities from Your Mentor</h2>
+          </div>
+          {activitiesLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : parentActivities.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No activities posted yet. Check back soon!</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {parentActivities.map((a) => (
+                <div key={a.id} className="p-4 rounded-xl bg-secondary/40 border border-border">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="text-sm font-700 text-foreground">{a.title}</span>
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${a.activity_type === 'game' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                      {a.activity_type === 'game' ? '🎲 Fun Game' : '📋 Task'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/80 leading-relaxed mb-3">{a.description}</p>
+
+                  {myResponses[a.id] ? (
+                    <div className="p-2.5 rounded-lg bg-positive/5 border border-positive/20 flex items-center gap-2">
+                      <Icon name="CheckCircleIcon" size={14} className="text-positive" />
+                      <span className="text-xs text-positive font-600">Completed — {myResponses[a.id]}</span>
+                    </div>
+                  ) : respondingActivityId === a.id ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        className="input-mystic text-sm min-h-[60px] resize-none"
+                        placeholder="Optional: share how it went..."
+                        value={responseDraft}
+                        onChange={(e) => setResponseDraft(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          className="btn-primary text-xs py-1.5 px-4"
+                          onClick={() => handleSubmitActivityResponse(a.id)}
+                          disabled={submittingActivityResponse}
+                        >
+                          {submittingActivityResponse ? 'Saving...' : 'Mark as Done'}
+                        </button>
+                        <button
+                          className="btn-ghost text-xs py-1.5 px-4"
+                          onClick={() => { setRespondingActivityId(null); setResponseDraft(''); }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn-ghost text-xs py-1.5 px-4"
+                      onClick={() => { setRespondingActivityId(a.id); setResponseDraft(''); }}
+                    >
+                      <Icon name="CheckIcon" size={13} /> Mark as Done
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'programs' && (
+        <div className="card-mystic p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Icon name="MegaphoneIcon" size={18} className="text-primary" />
+            <h2 className="text-base font-700 text-foreground">Programs & Events</h2>
+          </div>
+          {programsLoading ? (
+            <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : programs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No programs posted yet. Check back soon!</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {programs.map((p) => (
+                <div key={p.id} className="p-4 rounded-xl bg-secondary/40 border border-border">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="text-sm font-700 text-foreground">{p.title}</span>
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${p.posted_by_role === 'school' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                      {p.posted_by_role === 'school' ? 'School' : 'Mentor'}: {posterNames[p.posted_by] || '...'}
+                    </span>
+                    {p.program_date && (
+                      <span className="text-xs text-muted-foreground">{formatDate(p.program_date)}</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/80 leading-relaxed mb-2">{p.description}</p>
+                  <div className="flex items-center gap-3">
+                    {p.external_link && (
+                      <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                        <Icon name="LinkIcon" size={12} /> Open Link
+                      </a>
+                    )}
+                    {p.file_url && (
+                      <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                        <Icon name="DocumentIcon" size={12} /> {p.file_name}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SUGGESTION PORTAL TAB ─────────────────────────────────────────── */}
+      {activeTab === 'suggestions' && (
+        <div className="flex flex-col gap-6">
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="PaperAirplaneIcon" size={18} className="text-primary" />
+              Send a Suggestion, Feedback, or Query
+            </h2>
+            <div className="flex flex-col gap-3">
+              <select className="input-mystic" value={suggestionRecipientRole} onChange={(e) => setSuggestionRecipientRole(e.target.value)}>
+                <option value="">Send to...</option>
+                {PARENT_CAN_SEND_TO.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              {suggestionRecipientRole && (
+                <select className="input-mystic" value={suggestionRecipientId} onChange={(e) => setSuggestionRecipientId(e.target.value)}>
+                  <option value="">Choose a specific person...</option>
+                  {suggestionRecipientOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              )}
+              <select className="input-mystic" value={suggestionType} onChange={(e) => setSuggestionType(e.target.value as any)}>
+                <option value="suggestion">Suggestion</option>
+                <option value="feedback">Feedback</option>
+                <option value="query">Query</option>
+              </select>
+              <textarea
+                className="input-mystic min-h-[80px] resize-none"
+                placeholder="Write your message..."
+                value={suggestionMessage}
+                onChange={(e) => setSuggestionMessage(e.target.value)}
+              />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={revealIdentity} onChange={(e) => setRevealIdentity(e.target.checked)} className="w-4 h-4 rounded border-border" />
+                <span className="text-sm text-foreground">Reveal my identity to the recipient (otherwise sent anonymously)</span>
+              </label>
+              <button className="btn-primary self-start" onClick={handleSendSuggestion} disabled={sendingSuggestion}>
+                {sendingSuggestion ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+
+          <div className="card-mystic p-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2 mb-4">
+              <Icon name="InboxIcon" size={18} className="text-primary" />
+              Received
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                {receivedSuggestions.length} total
+              </span>
+            </h2>
+            {suggestionsLoading ? (
+              <div className="flex justify-center py-8"><div className="animate-spin w-6 h-6 rounded-full border-2 border-primary border-t-transparent" /></div>
+            ) : receivedSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Nothing received yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {receivedSuggestions.map((s) => (
+                  <div key={s.id} className="p-3 rounded-xl bg-secondary/40 border border-border">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-xs font-600 text-primary">
+                        {s.is_anonymous ? `Anonymous ${s.sender_role}` : (senderNames[s.sender_id] || s.sender_role)}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-card border border-border text-muted-foreground">{s.type}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${s.status === 'resolved' ? 'bg-positive/10 text-positive border-positive/20' : 'bg-muted text-muted-foreground border-border'}`}>{s.status}</span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{s.message}</p>
+                    {s.status !== 'resolved' && (
+                      <button className="btn-ghost text-xs py-1 px-3 mt-2" onClick={() => handleMarkResolved(s.id)}>
+                        Mark as Resolved
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'leaderboard' && (
         <div className="flex flex-col gap-6">
           <div className="card-mystic p-5">

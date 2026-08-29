@@ -9,8 +9,23 @@ function getServerSupabase() {
 
 // POST /api/register — register a new user and create their profile
 // This is a server-side fallback for profile creation if the DB trigger fails.
+// SECURITY: the caller must be logged in, and may only create/update THEIR OWN
+// profile (user_id must match the authenticated user's id) — otherwise anyone
+// could overwrite any other user's role and hijack their account.
 export async function POST(req: NextRequest) {
   try {
+    const authHeader = req.headers.get('authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const supabase = getServerSupabase();
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       user_id,
@@ -29,9 +44,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'user_id, email, and role are required' }, { status: 400 });
     }
 
-    const supabase = getServerSupabase();
+    if (user_id !== user.id) {
+      return NextResponse.json({ error: 'You may only create or update your own profile.' }, { status: 403 });
+    }
 
-    // Upsert the user profile — safe to call even if trigger already created it
     const { data, error } = await supabase
       .from('user_profiles')
       .upsert(
