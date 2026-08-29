@@ -257,15 +257,15 @@ export default function GlobalSearch() {
 
   return (
     <div ref={containerRef} className="relative w-full max-w-xs">
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-secondary border border-border focus-within:border-primary/50 transition-colors">
-        <Icon name="MagnifyingGlassIcon" size={15} className="text-muted-foreground flex-shrink-0" />
+      <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-secondary border border-border focus-within:border-primary/50 transition-colors">
+        <Icon name="MagnifyingGlassIcon" size={16} className="text-muted-foreground flex-shrink-0" />
         <input
           ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}
-          className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
+          className="bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground outline-none w-full min-w-0"
           onFocus={() => query.trim().length >= 2 && setOpen(true)}
         />
         {loading && (

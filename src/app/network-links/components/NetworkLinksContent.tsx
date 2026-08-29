@@ -1208,38 +1208,37 @@ interface SheetGroup {
 }
 
 // Given a list of `students` table ids, returns each student's parent name(s)
-// (via students.parent_ids -> user_profiles.full_name), their live attendance
-// summary, and their academic snapshot (grade, average score, sessions, trend,
-// primary topic) — all keyed by the students.id.
+// (via user_profiles.linked_student_id -> user_profiles.full_name), their live
+// attendance summary, and their academic snapshot (grade, average score,
+// sessions, trend, primary topic) — all keyed by the students.id.
 async function fetchStudentExtras(supabase: any, studentIds: string[]) {
   const parentNamesById: Record<string, string> = {};
   const attendanceById: Record<string, { rate: string; lastStatus: string }> = {};
   const academicById: Record<string, { grade: string; avgScore: string; sessionsCount: string; trend: string; primaryTopic: string }> = {};
   if (studentIds.length === 0) return { parentNamesById, attendanceById, academicById };
 
-  const [{ data: studentRows }, { data: attRows }] = await Promise.all([
-    supabase.from('students').select('id, parent_ids, grade, avg_score, sessions, trend, primary_topic').in('id', studentIds),
+  const [{ data: studentRows }, { data: attRows }, { data: parentRows }] = await Promise.all([
+    supabase.from('students').select('id, grade, avg_score, sessions, trend, primary_topic').in('id', studentIds),
     supabase
       .from('attendance')
       .select('student_id, status, attendance_date')
       .in('student_id', studentIds)
       .order('attendance_date', { ascending: false }),
+    supabase
+      .from('user_profiles')
+      .select('full_name, linked_student_id')
+      .eq('role', 'parent')
+      .in('linked_student_id', studentIds),
   ]);
 
-  const allParentIds: string[] = Array.from(
-    new Set((studentRows || []).flatMap((s: any) => s.parent_ids || []))
-  );
-  const parentNameById: Record<string, string> = {};
-  if (allParentIds.length > 0) {
-    const { data: parentProfiles } = await supabase
-      .from('user_profiles')
-      .select('id, full_name')
-      .in('id', allParentIds);
-    (parentProfiles || []).forEach((p: any) => { parentNameById[p.id] = p.full_name || 'Unnamed'; });
-  }
+  (parentRows || []).forEach((p: any) => {
+    if (!p.linked_student_id) return;
+    const name = p.full_name || 'Unnamed';
+    const existing = parentNamesById[p.linked_student_id];
+    parentNamesById[p.linked_student_id] = existing ? `${existing}, ${name}` : name;
+  });
   (studentRows || []).forEach((s: any) => {
-    const names = (s.parent_ids || []).map((pid: string) => parentNameById[pid]).filter(Boolean);
-    parentNamesById[s.id] = names.length > 0 ? names.join(', ') : '—';
+    if (!parentNamesById[s.id]) parentNamesById[s.id] = '—';
     academicById[s.id] = {
       grade: s.grade != null && s.grade !== '' ? String(s.grade) : '—',
       avgScore: s.avg_score != null ? String(s.avg_score) : '—',
