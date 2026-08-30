@@ -420,31 +420,17 @@ export default function StudentParentDashboardContent() {
     }
     setLinkingMentor(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { toast.error('Not authenticated.'); setLinkingMentor(false); return; }
+      const { data, error } = await supabase.rpc('student_self_link_mentor_by_code', {
+        p_mentor_code: code,
+      });
 
-      // Look up mentor by mentor_code
-      const { data: mentorRow, error: lookupErr } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, role')
-        .eq('mentor_code', code)
-        .eq('role', 'mentor')
-        .maybeSingle();
-
-      if (lookupErr) { toast.error('Lookup failed: ' + lookupErr.message); setLinkingMentor(false); return; }
-      if (!mentorRow) { toast.error('Invalid invite code. Please check with your mentor.'); setLinkingMentor(false); return; }
-
-      // Update the student's mentor_id in user_profiles
-      const { error: updateErr } = await supabase
-        .from('user_profiles')
-        .update({ mentor_id: mentorRow.id })
-        .eq('id', user.id);
-
-      if (updateErr) {
-        toast.error('Failed to link mentor: ' + updateErr.message);
+      if (error) {
+        toast.error('Failed to link mentor: ' + error.message);
+      } else if (!data?.success) {
+        toast.error(data?.error || 'Invalid invite code. Please check with your mentor.');
       } else {
-        toast.success(`Successfully linked to mentor: ${mentorRow.full_name}!`);
-        setLinkedMentorName(mentorRow.full_name);
+        toast.success(`Successfully linked to mentor: ${data.mentor_name}!`);
+        setLinkedMentorName(data.mentor_name);
         setMentorInviteCode('');
         loadData();
       }
