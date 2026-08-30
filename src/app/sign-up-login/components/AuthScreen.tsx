@@ -495,11 +495,18 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
               codename: data.codename,
               role: roleValue,
               mentor_code: mentorCode,
-              mentor_id: linkedMentorId || null,
-              student_id: linkedStudentId || null,
-              linked_student_id: parentLinkedStudentId || null,
-              counselor_id: linkedCounselorId || null,
-              school_id: linkedSchoolId || null,
+              inviteCode: (data.role === 'student' || data.role === 'counselor') && data.inviteCode
+                ? data.inviteCode.trim().toUpperCase()
+                : null,
+              parentLinkCode: data.role === 'parent' && data.parentLinkCode
+                ? data.parentLinkCode.trim().toUpperCase()
+                : null,
+              counselorInviteCode: data.role === 'mentor' && data.counselorInviteCode
+                ? data.counselorInviteCode.trim().toUpperCase()
+                : null,
+              schoolInviteCode: schoolCodeRoles.includes(data.role) && data.schoolInviteCode
+                ? data.schoolInviteCode.trim().toUpperCase()
+                : null,
               adminInviteCode: data.role === 'admin' ? (data.adminInviteCode?.trim().toUpperCase() || null) : null,
             },
             emailRedirectTo: `${window.location.origin}/sign-up-login`,
@@ -544,42 +551,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
         return;
       }
 
-      // ── Step 2: Explicit INSERT into user_profiles ────────────────────────────
-      const profilePayload: Record<string, any> = {
-        id: authData.user.id,
-        email: data.email,
-        full_name: data.fullName,
-        codename: data.codename,
-        role: roleValue,
-        mentor_code: mentorCode,
-        mentor_id: linkedMentorId || null,
-        student_id: linkedStudentId || null,
-        linked_student_id: parentLinkedStudentId || null,
-        counselor_id: linkedCounselorId || null,
-        school_id: linkedSchoolId || null,
-      };
-
-      try {
-        const { error: profileInsertError } = await supabase
-          .from('user_profiles')
-          .upsert(profilePayload, { onConflict: 'id' });
-
-        if (profileInsertError) {
-          console.error('[SignUp] user_profiles INSERT/UPSERT error:', profileInsertError);
-          setSupabaseError({
-            message: `Profile INSERT failed: ${profileInsertError.message} | Details: ${profileInsertError.details || 'none'} | Hint: ${profileInsertError.hint || 'none'}`,
-            code: profileInsertError.code,
-          });
-          toast.error(`⚠️ Profile write error (${profileInsertError.code}): ${profileInsertError.message}`);
-        } else {
-          console.log('[SignUp] user_profiles INSERT/UPSERT succeeded for user:', authData.user.id);
-        }
-      } catch (profileEx: any) {
-        console.error('[SignUp] user_profiles INSERT exception:', profileEx);
-        setSupabaseError({ message: `Profile INSERT exception: ${profileEx?.message || String(profileEx)}` });
-        toast.error(`⚠️ Profile write exception: ${profileEx?.message || String(profileEx)}`);
-      }
-      // ── Step 2.5: For students, create their matching `students` table row ──
+      // ── Step 2: For students, create their matching `students` table row ──
       if (data.role === 'student' && linkedMentorId && authData?.user?.id) {
         try {
           const { data: existingRow } = await supabase
@@ -613,10 +585,7 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
           }
 
           if (studentRecordId) {
-            await supabase
-              .from('user_profiles')
-              .update({ student_id: studentRecordId })
-              .eq('id', authData.user.id);
+            await supabase.rpc('student_link_backfill_ids', { p_student_id: studentRecordId });
           }
         } catch (studentRowEx: any) {
           console.error('[SignUp] students row creation exception:', studentRowEx);
