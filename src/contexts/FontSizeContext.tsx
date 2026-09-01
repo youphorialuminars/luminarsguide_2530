@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 type FontSize = 'small' | 'medium' | 'large';
-export type ThemeName = 'mystic' | 'teal-gold' | 'dark-teal';
+export type ThemeName = 'light' | 'dark';
 
 interface FontSizeContextType {
   fontSize: FontSize;
@@ -15,7 +15,7 @@ interface FontSizeContextType {
 const FontSizeContext = createContext<FontSizeContextType>({
   fontSize: 'medium',
   setFontSize: () => {},
-  theme: 'mystic',
+  theme: 'light',
   setTheme: () => {},
 });
 
@@ -24,6 +24,9 @@ export const useTheme = () => useContext(FontSizeContext);
 
 const FONT_SIZE_KEY = 'luminar_font_size';
 const THEME_KEY = 'luminar_theme';
+
+export const FAVICON_LIGHT = 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/faviconlight.png';
+export const FAVICON_DARK = 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/favicondark.png';
 
 const FONT_SIZE_VARS: Record<FontSize, { base: string; sm: string; xs: string; lg: string; xl: string; '2xl': string }> = {
   small: {
@@ -59,9 +62,8 @@ const ROOT_FONT_SIZE: Record<FontSize, string> = {
 };
 
 const THEME_CLASS: Record<ThemeName, string | null> = {
-  mystic: null,
-  'teal-gold': 'theme-teal-gold',
-  'dark-teal': 'theme-dark-teal',
+  light: null,
+  dark: 'theme-dark',
 };
 
 function applyFontSize(size: FontSize) {
@@ -71,8 +73,8 @@ function applyFontSize(size: FontSize) {
   root.style.setProperty('--fs-sm', vars.sm);
   root.style.setProperty('--fs-xs', vars.xs);
   root.style.setProperty('--fs-lg', vars.lg);
-  root.style.setProperty('--fs-xl', vars.xl);
   root.style.setProperty('--fs-2xl', vars['2xl']);
+  root.style.setProperty('--fs-xl', vars.xl);
   root.setAttribute('data-font-size', size);
   root.style.fontSize = ROOT_FONT_SIZE[size];
   document.body.classList.remove('font-size-small', 'font-size-medium', 'font-size-large');
@@ -81,15 +83,20 @@ function applyFontSize(size: FontSize) {
 
 function applyTheme(theme: ThemeName) {
   const root = document.documentElement;
-  root.classList.remove('theme-teal-gold', 'theme-dark-teal');
+  root.classList.remove('theme-dark');
   const className = THEME_CLASS[theme];
   if (className) root.classList.add(className);
   root.setAttribute('data-theme', theme);
+
+  const fav = document.getElementById('app-favicon') as HTMLLinkElement | null;
+  if (fav) {
+    fav.href = theme === 'dark' ? FAVICON_DARK : FAVICON_LIGHT;
+  }
 }
 
 export function FontSizeProvider({ children }: { children: React.ReactNode }) {
   const [fontSize, setFontSizeState] = useState<FontSize>('medium');
-  const [theme, setThemeState] = useState<ThemeName>('mystic');
+  const [theme, setThemeState] = useState<ThemeName>('light');
 
   useEffect(() => {
     const storedSize = (typeof window !== 'undefined' ? localStorage.getItem(FONT_SIZE_KEY) : null) as FontSize | null;
@@ -98,7 +105,7 @@ export function FontSizeProvider({ children }: { children: React.ReactNode }) {
     applyFontSize(initialSize);
 
     const storedTheme = (typeof window !== 'undefined' ? localStorage.getItem(THEME_KEY) : null) as ThemeName | null;
-    const initialTheme: ThemeName = storedTheme && ['mystic', 'teal-gold', 'dark-teal'].includes(storedTheme) ? storedTheme : 'mystic';
+    const initialTheme: ThemeName = storedTheme && ['light', 'dark'].includes(storedTheme) ? storedTheme : 'light';
     setThemeState(initialTheme);
     applyTheme(initialTheme);
   }, []);

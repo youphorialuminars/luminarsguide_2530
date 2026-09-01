@@ -230,11 +230,10 @@ export default function SettingsContent() {
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {([
-            { value: 'mystic' as const, label: 'Mystic', description: 'Purple & gold — original theme', swatch: ['#7C6FCD', '#F0C060'] },
-            { value: 'teal-gold' as const, label: 'Teal & Gold', description: 'Fresh teal & warm gold', swatch: ['#14877A', '#D9A441'] },
-            { value: 'dark-teal' as const, label: 'Dark Teal', description: 'Dark mode with teal accents', swatch: ['#2FBFA8', '#0A1F1D'] },
+            { value: 'light' as const, label: 'Light', description: 'Bright, clean — ink & slate', swatch: ['#16212C', '#5C798E'] },
+            { value: 'dark' as const, label: 'Dark', description: 'Deep charcoal with a teal accent', swatch: ['#F3F1EC', '#2DD4BF'] },
           ]).map((option) => {
             const isActive = theme === option.value;
             return (
@@ -261,7 +260,7 @@ export default function SettingsContent() {
                 <div className="text-center">
                   <p className={`font-700 text-sm ${isActive ? 'text-primary' : 'text-foreground'}`}>
                     {option.label}
-                    {option.value === 'mystic' && (
+                    {option.value === 'light' && (
                       <span className="ml-1.5 text-xs font-500 text-muted-foreground">(Default)</span>
                     )}
                   </p>

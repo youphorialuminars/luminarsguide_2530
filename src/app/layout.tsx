@@ -21,9 +21,6 @@ export const metadata: Metadata = {
   title: "Luminar's Guide — Mentorship Intelligence for Educators",
   description:
     "Luminar's Guide helps mentors generate AI-powered personalized educational analysis for students, tracking progress and insights across every session.",
-  icons: {
-    icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
-  },
 };
 
 export default function RootLayout({
@@ -32,24 +29,34 @@ export default function RootLayout({
   return (
     <html lang="en" className={plusJakartaSans.variable} suppressHydrationWarning>
       <head>
+        <link
+          id="app-favicon"
+          rel="icon"
+          type="image/png"
+          href="https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/faviconlight.png"
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
                 try {
                   var theme = localStorage.getItem('luminar_theme');
-                  var map = { 'teal-gold': 'theme-teal-gold', 'dark-teal': 'theme-dark-teal' };
-                  if (theme && map[theme]) {
-                    document.documentElement.classList.add(map[theme]);
+                  var isDark = theme === 'dark';
+                  if (isDark) {
+                    document.documentElement.classList.add('theme-dark');
+                  }
+                  var fav = document.getElementById('app-favicon');
+                  if (fav) {
+                    fav.href = isDark
+                      ? 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/favicondark.png'
+                      : 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/faviconlight.png';
                   }
                 } catch (e) {}
               })();
             `,
           }}
         />
-
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fluminarsgu1587back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
+</head>
       <body className={plusJakartaSans.className}>
         <FontSizeProvider>
           <AuthProvider>

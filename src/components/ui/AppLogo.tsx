@@ -3,23 +3,31 @@
 import React, { memo, useMemo } from 'react';
 import AppIcon from './AppIcon';
 import AppImage from './AppImage';
+import { useTheme } from '@/contexts/FontSizeContext';
 
 interface AppLogoProps {
-  src?: string; // Image source (optional)
+  src?: string; // Image source (optional) — overrides the theme-based default
   iconName?: string; // Icon name when no image
   size?: number; // Size for icon/image
   className?: string; // Additional classes
   onClick?: () => void; // Click handler
 }
 
+const LOGO_LIGHT = 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/logofulllight%20(1).svg';
+const LOGO_DARK = 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/logofulldark.svg';
+
 const AppLogo = memo(function AppLogo({
-  src = 'https://ldkwhimqenxkloibhwzt.supabase.co/storage/v1/object/public/Branding/combined_logo%20(2).png',
+  src,
   iconName = 'SparklesIcon',
   size = 64,
   className = '',
   onClick,
 }: AppLogoProps) {
-  // Memoize className calculation
+  const { theme } = useTheme();
+
+  // Use the logo that matches the active theme unless a specific src was passed in.
+  const resolvedSrc = src || (theme === 'dark' ? LOGO_DARK : LOGO_LIGHT);
+
   const containerClassName = useMemo(() => {
     const classes = ['flex items-center'];
     if (onClick) classes.push('cursor-pointer hover:opacity-80 transition-opacity');
@@ -29,16 +37,15 @@ const AppLogo = memo(function AppLogo({
 
   return (
     <div className={containerClassName} onClick={onClick}>
-      {/* Show image if src provided, otherwise show icon */}
-      {src ? (
+      {resolvedSrc ? (
         <AppImage
-          src={src}
-          alt="Logo" 
+          src={resolvedSrc}
+          alt="Logo"
           width={Math.round(size * 3.87)}
           height={size}
           className="flex-shrink-0 object-contain"
           priority={true}
-          unoptimized={src.endsWith('.svg')}
+          unoptimized={resolvedSrc.endsWith('.svg')}
         />
       ) : (
         <AppIcon name={iconName} size={size} className="flex-shrink-0" />
