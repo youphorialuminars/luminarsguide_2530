@@ -348,6 +348,7 @@ export default function AdminDashboardContent() {
   };
 
   // ─── Derived Data ──────────────────────────────────────────────────────────
+  const schoolIds = linkedSchools.map((s) => s.school_id);
   const mentors = allProfiles.filter((p) => p.role === 'mentor');
   const students = allProfiles.filter((p) => p.role === 'student' || p.role === 'student_parent');
   const parents = allProfiles.filter((p) => p.role === 'parent');
@@ -1047,8 +1048,11 @@ export default function AdminDashboardContent() {
                         <span className="text-sm font-700 text-foreground">{p.title}</span>
                         <span
                           className={`text-xs font-600 px-2 py-0.5 rounded-full border ${
-                            p.posted_by_role === 'admin' ?'bg-amber-50 text-amber-700 border-amber-200'
-                              : p.posted_by_role === 'school' ?'bg-violet-50 text-violet-700 border-violet-200' :'bg-sky-50 text-sky-700 border-sky-200'
+                            p.posted_by_role === 'admin'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : p.posted_by_role === 'school'
+                              ? 'bg-violet-50 text-violet-700 border-violet-200'
+                              : 'bg-sky-50 text-sky-700 border-sky-200'
                           }`}
                         >
                           {p.posted_by_role === 'admin' ? 'Admin' : p.posted_by_role === 'school' ? 'School' : 'Mentor'}:{' '}
