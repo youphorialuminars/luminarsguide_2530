@@ -16,24 +16,13 @@ interface LinkedSchool {
 interface SchoolProfile {
   id: string;
   full_name: string;
+  email?: string;
   role: string;
   school_id: string | null;
   mentor_id: string | null;
-}
-
-interface MentorRow {
-  id: string;
-  full_name: string;
-  email: string;
-  school_id: string | null;
-}
-
-interface StudentRow {
-  id: string;
-  full_name: string;
-  email: string;
-  school_id: string | null;
-  mentor_id: string | null;
+  // Not currently returned by the user_profiles query below — grade lives on
+  // the `students` table, not `user_profiles`. Kept optional so the "Grade"
+  // column in the All Students tab renders "—" instead of throwing.
   grade?: string;
 }
 
@@ -83,10 +72,6 @@ export default function AdminDashboardContent() {
     if (t) setActiveTab(t as AdminTab);
   }, [searchParams]);
 
-  useEffect(() => {
-    const t = searchParams.get('tab');
-    if (t) setActiveTab(t as AdminTab);
-  }, [searchParams]);
   const [receivedSuggestions, setReceivedSuggestions] = useState<any[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
@@ -362,38 +347,7 @@ export default function AdminDashboardContent() {
     }
   };
 
-      // Check if already linked
-      const { data: existingLink } = await supabase
-        .from('admin_school_links')
-        .select('id')
-        .eq('admin_id', adminId)
-        .eq('school_id', codeRow.school_id)
-        .maybeSingle();
-
-      if (existingLink) {
-        toast.error('You are already linked to this school.');
-        return;
-      }
-
-      const { error: insertErr } = await supabase
-        .from('admin_school_links')
-        .insert({ admin_id: adminId, school_id: codeRow.school_id });
-
-      if (insertErr) {
-        toast.error('Failed to link school: ' + insertErr.message);
-        return;
-      }
-
-      toast.success('School linked successfully!');
-      setInviteCode('');
-      loadData(adminId);
-    } finally {
-      setLinkingSchool(false);
-    }
-  };
-
   // ─── Derived Data ──────────────────────────────────────────────────────────
-  const schoolIds = linkedSchools.map((s) => s.school_id);
   const mentors = allProfiles.filter((p) => p.role === 'mentor');
   const students = allProfiles.filter((p) => p.role === 'student' || p.role === 'student_parent');
   const parents = allProfiles.filter((p) => p.role === 'parent');
@@ -401,7 +355,7 @@ export default function AdminDashboardContent() {
 
   const filteredMentors = mentors.filter((m) =>
     m.full_name?.toLowerCase().includes(mentorSearch.toLowerCase()) ||
-    (m as any).email?.toLowerCase().includes(mentorSearch.toLowerCase())
+    m.email?.toLowerCase().includes(mentorSearch.toLowerCase())
   );
 
   const filteredStudents = students.filter((s) =>
@@ -708,7 +662,7 @@ export default function AdminDashboardContent() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-600 text-foreground truncate">{mentor.full_name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{(mentor as any).email || '—'}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{mentor.email || '—'}</p>
                                 </div>
                                 <span className="text-xs text-muted-foreground flex-shrink-0">
                                   {getStudentCountForMentor(mentor.id)} students
@@ -802,7 +756,7 @@ export default function AdminDashboardContent() {
                           <span className="text-sm font-600 text-foreground">{mentor.full_name}</span>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{(mentor as any).email || '—'}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{mentor.email || '—'}</td>
                       <td className="px-5 py-3.5 text-sm text-muted-foreground">{getSchoolName(mentor.school_id)}</td>
                       <td className="px-5 py-3.5 text-sm text-muted-foreground">{getStudentCountForMentor(mentor.id)}</td>
                     </tr>
@@ -865,7 +819,7 @@ export default function AdminDashboardContent() {
                       </td>
                       <td className="px-5 py-3.5 text-sm text-muted-foreground">{getMentorName(student.mentor_id)}</td>
                       <td className="px-5 py-3.5 text-sm text-muted-foreground">{getSchoolName(student.school_id)}</td>
-                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{(student as any).grade || '—'}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{student.grade || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1113,7 +1067,7 @@ export default function AdminDashboardContent() {
                       <p className="text-sm text-foreground/80 leading-relaxed">{p.description}</p>
                       <div className="flex items-center gap-3 mt-2">
                         {p.external_link && (
-                          <a
+                          
                             href={p.external_link}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -1123,7 +1077,7 @@ export default function AdminDashboardContent() {
                           </a>
                         )}
                         {p.file_url && (
-                          <a
+                          
                             href={p.file_url}
                             target="_blank"
                             rel="noopener noreferrer"
