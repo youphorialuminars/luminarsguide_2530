@@ -46,16 +46,16 @@
   --primary: #F3F1EC;
   --primary-foreground: #16140F;
   --secondary: #211E1A;
-  --secondary-foreground: #2DD4BF;
-  --accent: #2DD4BF;
-  --accent-foreground: #052220;
+  --secondary-foreground: #8494A4;
+  --accent: #55738A;
+  --accent-foreground: #F3F1EC;
   --muted: #1D1B18;
   --muted-foreground: #9AA6A2;
   --card: #1B1916;
   --card-foreground: #F3F1EC;
   --border: #2C2823;
   --input: #211E1A;
-  --ring: #2DD4BF;
+  --ring: #55738A;
 
   --positive: #3FCB8F;
   --positive-bg: #10362A;
@@ -104,7 +104,7 @@
   }
 
   .mystic-gradient-panel {
-    background: linear-gradient(160deg, #16212C 0%, #1F3A45 45%, #2DD4BF 130%);
+    background: linear-gradient(160deg, #16212C 0%, #1F3A45 45%, #55738A 130%);
   }
 
   .card-elevated {
@@ -149,7 +149,7 @@
   }
 
   .blob-gold {
-    background: radial-gradient(ellipse, rgba(45,212,191,0.20) 0%, transparent 70%);
+    background: radial-gradient(ellipse, rgba(85,115,138,0.20) 0%, transparent 70%);
     filter: blur(40px);
   }
 
@@ -323,7 +323,7 @@
   }
 
   @keyframes pulseHighlight {
-    0% { background-color: rgba(45,212,191,0.3); }
+    0% { background-color: rgba(85,115,138,0.3); }
     100% { background-color: transparent; }
   }
 
