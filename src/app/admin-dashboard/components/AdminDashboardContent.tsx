@@ -336,16 +336,31 @@ export default function AdminDashboardContent() {
     if (!adminId) return;
     setLinkingSchool(true);
     try {
-      const { data: codeRow, error: codeErr } = await supabase
-        .from('school_invite_codes')
-        .select('id, school_id, used_by')
-        .eq('invite_code', code)
-        .maybeSingle();
+      // Looking up a school's invite code directly isn't allowed until an
+      // admin is already linked to that school (a chicken-and-egg problem),
+      // so this goes through a dedicated function that does the lookup and
+      // the link together, safely, in one step.
+      const { data, error } = await supabase.rpc('admin_link_school', {
+        p_invite_code: code,
+      });
 
-      if (codeErr || !codeRow) {
-        toast.error('Invalid school invite code. Please check and try again.');
+      if (error) {
+        toast.error('Failed to link school: ' + error.message);
         return;
       }
+
+      if (!data?.success) {
+        toast.error(data?.error || 'Invalid school invite code. Please check and try again.');
+        return;
+      }
+
+      toast.success('School linked successfully!');
+      setInviteCode('');
+      loadData(adminId);
+    } finally {
+      setLinkingSchool(false);
+    }
+  };
 
       // Check if already linked
       const { data: existingLink } = await supabase

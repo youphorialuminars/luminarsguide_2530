@@ -138,26 +138,62 @@ export default function SchoolDashboardContent() {
 
       const mentorIds = mentorList.map((m) => m.id);
 
-      // Load students directly linked to this school from user_profiles
-      const { data: profileStudentData, error: studentErr } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, mentor_id')
-        .eq('school_id', uid)
-        .in('role', ['student', 'student_parent']);
+      // Load this school's students from the `students` roster table (NOT
+      // user_profiles) — attendance/student_tasks/sessions all key off
+      // students.id, so that's the id every student here must carry.
+      // A student can belong to this school two ways:
+      //  (a) added by one of this school's own mentors (students.mentor_id)
+      //  (b) self-registered and directly linked to this school
+      //      (students.student_user_id -> a user_profiles row with school_id = uid)
+      const rosterRows: any[] = [];
 
-      if (studentErr) {
-        console.error('[SchoolDashboard] Failed to load students:', studentErr.message);
+      if (mentorIds.length > 0) {
+        const { data: byMentor, error: byMentorErr } = await supabase
+          .from('students')
+          .select('id, name, grade, mentor_id, avg_score, sessions')
+          .in('mentor_id', mentorIds);
+        if (byMentorErr) {
+          console.error('[SchoolDashboard] Failed to load mentor-linked students:', byMentorErr.message);
+        }
+        rosterRows.push(...(byMentor || []));
       }
 
-      // Map full_name to name to match the dashboard's student layout
-      const formattedStudents = (profileStudentData || []).map((s: any) => ({
-        id: s.id,
-        name: s.full_name || 'Student',
-        grade: '—',
-        mentor_id: s.mentor_id,
-        avg_score: 0,
-        sessions: 0,
-      }));
+      const { data: selfRegisteredProfiles, error: selfRegErr } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('school_id', uid)
+        .in('role', ['student', 'student_parent']);
+      if (selfRegErr) {
+        console.error('[SchoolDashboard] Failed to load self-registered student profiles:', selfRegErr.message);
+      }
+      const selfRegisteredIds = (selfRegisteredProfiles || []).map((p: any) => p.id);
+
+      if (selfRegisteredIds.length > 0) {
+        const { data: bySelf, error: bySelfErr } = await supabase
+          .from('students')
+          .select('id, name, grade, mentor_id, avg_score, sessions')
+          .in('student_user_id', selfRegisteredIds);
+        if (bySelfErr) {
+          console.error('[SchoolDashboard] Failed to load self-registered student rows:', bySelfErr.message);
+        }
+        rosterRows.push(...(bySelf || []));
+      }
+
+      // De-dupe by students.id in case a row matched both paths
+      const seenStudentIds = new Set<string>();
+      const formattedStudents = rosterRows.reduce((acc: StudentRow[], s: any) => {
+        if (seenStudentIds.has(s.id)) return acc;
+        seenStudentIds.add(s.id);
+        acc.push({
+          id: s.id,
+          name: s.name || 'Student',
+          grade: s.grade || '—',
+          mentor_id: s.mentor_id,
+          avg_score: s.avg_score || 0,
+          sessions: s.sessions || 0,
+        });
+        return acc;
+      }, []);
 
       setStudents(formattedStudents);
       const studentIds = formattedStudents.map((s) => s.id);

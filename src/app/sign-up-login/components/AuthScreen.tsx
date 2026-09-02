@@ -471,6 +471,43 @@ function SignupForm({ onSwitchTab }: { onSwitchTab: (tab: AuthTab) => void }) {
       }
 
       // Generate mentor_code for mentors in LLL-DDDDDD format
+      // For admin: validate the one-time admin invite code up front, so a wrong or
+      // already-used code fails clearly here instead of silently creating a mentor
+      // account with no explanation (which is what used to happen).
+      if (data.role === 'admin') {
+        const code = data.adminInviteCode?.trim().toUpperCase() || '';
+        if (!code || !validateInviteCode(code)) {
+          setError('adminInviteCode', { message: 'Code must be in format ABC-123456 (3 letters, hyphen, 6 digits)' });
+          setIsLoading(false);
+          return;
+        }
+        try {
+          const { data: adminCodeCheck, error: adminCodeErr } = await supabase
+            .rpc('check_admin_invite_code', { p_code: code });
+
+          if (adminCodeErr) {
+            console.error('[SignUp] admin invite lookup error:', adminCodeErr);
+            setSupabaseError({ message: `Admin code lookup failed: ${adminCodeErr.message}`, code: adminCodeErr.code });
+            setError('adminInviteCode', { message: `Lookup failed: ${adminCodeErr.message}` });
+            setIsLoading(false);
+            return;
+          }
+          if (!adminCodeCheck?.valid) {
+            setError('adminInviteCode', {
+              message: adminCodeCheck?.reason === 'used'
+                ? 'This admin invite code has already been used.'
+                : 'Invalid admin invite code. Please check with an existing admin.',
+            });
+            setIsLoading(false);
+            return;
+          }
+        } catch (aEx: any) {
+          console.error('[SignUp] admin invite exception:', aEx);
+          setSupabaseError({ message: `Admin invite exception: ${aEx?.message || String(aEx)}` });
+          setIsLoading(false);
+          return;
+        }
+      }
       const generateMentorCode = (): string => {
         const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const prefix = Array.from({ length: 3 }, () => letters[Math.floor(Math.random() * 26)]).join('');
