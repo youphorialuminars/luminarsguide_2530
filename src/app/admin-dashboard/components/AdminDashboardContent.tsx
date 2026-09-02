@@ -1071,22 +1071,12 @@ export default function AdminDashboardContent() {
                       <p className="text-sm text-foreground/80 leading-relaxed">{p.description}</p>
                       <div className="flex items-center gap-3 mt-2">
                         {p.external_link && (
-                          
-                            href={p.external_link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary hover:underline flex items-center gap-1"
-                          >
+                          <a href={p.external_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
                             <Icon name="LinkIcon" size={12} /> Open Link
                           </a>
                         )}
                         {p.file_url && (
-                          
-                            href={p.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary hover:underline flex items-center gap-1"
-                          >
+                          <a href={p.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
                             <Icon name="DocumentIcon" size={12} /> {p.file_name}
                           </a>
                         )}
